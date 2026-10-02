@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- 資產記錄網站：登入時自動啟動，結束後自動重啟 -->
+  <key>Label</key>
+  <string>com.akira.asset-server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/akiraeason/.pyenv/versions/3.11.9/bin/python3</string>
+    <string>/Users/akiraeason/asset/server.py</string>
+    <string>--no-browser</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/akiraeason/asset</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/akiraeason/Library/Logs/asset-server.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/akiraeason/Library/Logs/asset-server.log</string>
+</dict>
+</plist>

@@ -1,0 +1,9 @@
+# 個人財務資料：只存在本機，不上傳
+data.json
+data.json.tmp
+backups/
+
+# 測試記錄與暫存
+diagnostics/*.log
+__pycache__/
+.DS_Store

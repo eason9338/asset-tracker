@@ -1,0 +1,1359 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>我的資產</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f5f2;
+  --surface: #fcfcfb;
+  --surface-2: #f0efeb;
+  --border: #e3e1db;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --text-3: #85847f;
+  --accent: #2a78d6;
+  --accent-soft: rgba(42,120,214,.12);
+  --up: #d23c3b;     /* 台股慣例：紅漲 */
+  --down: #0f7d3a;   /* 綠跌 */
+  --radius: 12px;
+}
+:root.us-colors { --up: #0f7d3a; --down: #d23c3b; }
+/* 比較圖的系列色（固定順序：組合、S&P 500、Nasdaq 100、短期美債） */
+:root { --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; }
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #111110;
+    --surface: #1a1a19;
+    --surface-2: #232321;
+    --border: #2f2f2c;
+    --text: #ffffff;
+    --text-2: #c3c2b7;
+    --text-3: #8d8c85;
+    --accent: #3987e5;
+    --accent-soft: rgba(57,135,229,.18);
+    --up: #f06a69;
+    --down: #3fbf6f;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  }
+  :root.us-colors { --up: #3fbf6f; --down: #f06a69; }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+.num { font-variant-numeric: tabular-nums; }
+.up { color: var(--up); } .down { color: var(--down); } .muted { color: var(--text-3); }
+h2 { font-size: 15px; margin: 0; font-weight: 600; }
+button, input, select { font: inherit; color: inherit; }
+button {
+  border: 1px solid var(--border); background: var(--surface); border-radius: 8px;
+  padding: 7px 12px; cursor: pointer; white-space: nowrap;
+}
+button:hover { background: var(--surface-2); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { filter: brightness(1.08); }
+button.ghost { border-color: transparent; background: transparent; padding: 4px 8px; color: var(--text-2); }
+button.ghost:hover { background: var(--surface-2); color: var(--text); }
+button.danger { color: var(--up); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+.card + .card, .grid + .card, .card + .grid { margin-top: 16px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+
+/* Hero */
+.hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.hero-label { color: var(--text-2); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+.hero-value { font-size: clamp(32px, 6vw, 46px); font-weight: 650; letter-spacing: -.02em; line-height: 1.15; }
+.hero-sub { font-size: 14px; margin-top: 4px; display: flex; gap: 14px; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 4px 10px; font-size: 12px; }
+.seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.status { font-size: 12px; color: var(--text-3); display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+@media (max-width: 600px) { .status { justify-content: flex-start; } }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
+@media (max-width: 600px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+.stat .k { font-size: 12px; color: var(--text-2); display: flex; justify-content: space-between; align-items: center; }
+.stat .v { font-size: 20px; font-weight: 600; margin-top: 2px; }
+.stat .s { font-size: 12px; margin-top: 2px; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: 0 -18px; padding: 0 18px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 9px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border); }
+th { font-size: 12px; font-weight: 500; color: var(--text-3); }
+th:first-child, td:first-child { text-align: left; padding-left: 0; }
+th:last-child, td:last-child { padding-right: 0; }
+tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: var(--surface-2); }
+.sym { font-weight: 600; }
+.sym-name { font-size: 12px; color: var(--text-3); max-width: 180px; overflow: hidden; text-overflow: ellipsis; display: block; }
+.alloc { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.alloc-bar { width: 60px; height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.alloc-bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.empty { text-align: center; color: var(--text-3); padding: 28px 0; }
+
+/* Chart */
+.chart-box { position: relative; height: 220px; }
+.chart-box svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.chart-tip {
+  position: absolute; pointer-events: none; background: var(--text); color: var(--bg);
+  padding: 6px 10px; border-radius: 8px; font-size: 12px; white-space: nowrap; transform: translate(-50%, -110%);
+}
+.axis-text { fill: var(--text-3); font-size: 11px; }
+.end-label { fill: var(--text-2); font-size: 11px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 10px; font-size: 13px; }
+.legend-item { display: flex; align-items: center; gap: 6px; color: var(--text-2); }
+.legend-item b { color: var(--text); font-weight: 600; }
+.swatch { width: 14px; height: 0; border-top: 2px solid; border-radius: 1px; }
+.swatch.dash { border-top-style: dashed; }
+.compare-note { font-size: 12px; color: var(--text-3); margin-top: 8px; }
+.chart-tip .row { display: flex; justify-content: space-between; gap: 14px; }
+.lev { display: inline-block; font-size: 10px; font-weight: 600; padding: 0 5px; margin-left: 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); vertical-align: 1px; }
+.imp-list { font-size: 13px; color: var(--text-2); margin: 0 0 12px; padding-left: 18px; }
+.imp-list li { margin-bottom: 4px; }
+.imp-table { font-size: 12px; margin-bottom: 12px; }
+.imp-table td, .imp-table th { padding: 4px 6px; }
+
+/* Transactions */
+.pnl-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; background: var(--surface-2); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+.pnl-panel .k { font-size: 12px; color: var(--text-2); }
+.pnl-panel .v { font-size: 26px; font-weight: 650; letter-spacing: -.01em; }
+.pnl-panel .s { font-size: 12px; color: var(--text-3); line-height: 1.6; }
+.pnl-parts { display: flex; gap: 8px; flex-wrap: wrap; }
+.pnl-part { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: var(--surface); padding: 8px 12px; font-size: 15px; font-weight: 600; }
+.pnl-part .k { font-weight: 400; }
+.pnl-notes { flex: 1 1 220px; }
+.tx-type { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--surface-2); color: var(--text-2); }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Modal */
+dialog {
+  border: 1px solid var(--border); border-radius: 16px; padding: 0; background: var(--surface); color: var(--text);
+  width: min(440px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(0,0,0,.25);
+}
+dialog::backdrop { background: rgba(0,0,0,.35); }
+.modal-body { padding: 20px; }
+.modal-body h3 { margin: 0 0 14px; font-size: 17px; }
+.tabs { display: flex; gap: 4px; background: var(--surface-2); border-radius: 10px; padding: 3px; margin-bottom: 16px; }
+.tabs button { flex: 1; border: 0; background: transparent; padding: 6px 4px; font-size: 13px; border-radius: 8px; }
+.tabs button.on { background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.12); font-weight: 600; }
+.field { margin-bottom: 12px; }
+.field label { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 4px; }
+.field input, .field select {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+}
+.field input:focus, .field select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); margin-bottom: 12px; }
+.preview:empty { display: none; }
+.preview { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px; color: var(--text-2); min-height: 20px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.err { color: var(--up); font-size: 13px; margin-bottom: 10px; }
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: var(--bg);
+  padding: 10px 16px; border-radius: 10px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none;
+}
+.toast.show { opacity: 1; }
+.spin { display: inline-block; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- 總資產 -->
+  <div class="card">
+    <div class="hero">
+      <div>
+        <div class="hero-label">
+          總資產
+          <span class="seg" id="curSeg">
+            <button data-cur="TWD">TWD</button><button data-cur="USD">USD</button>
+          </span>
+        </div>
+        <div class="hero-value num" id="heroTotal">—</div>
+        <div class="hero-sub num">
+          <span id="heroDay"></span>
+        </div>
+      </div>
+      <div>
+        <div class="status">
+          <span id="fxInfo"></span>
+        </div>
+        <div class="status" style="margin-top:4px">
+          <span id="updatedAt">尚未更新</span>
+          <button class="ghost" id="refreshBtn" title="立即更新股價">↻ 更新</button>
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="brokerBtn">⇪ 上傳券商檔案</button>
+      <span class="muted" style="font-size:12px;align-self:center">交易紀錄 CSV、持倉 xlsx 都可以，也能直接拖進網頁</span>
+      <input type="file" id="brokerFile" accept=".csv,.xlsx,text/csv" multiple hidden>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="stat"><div class="k">持倉市值</div><div class="v num" id="stStock">—</div><div class="s num" id="stStockSub"></div></div>
+    <div class="stat"><div class="k">現金（美元）</div><div class="v num" id="stUSD">—</div><div class="s muted num" id="stUSDSub"></div></div>
+    <div class="stat"><div class="k">USD / TWD 匯率</div><div class="v num" id="stFx">—</div><div class="s num" id="stFxSub"></div></div>
+    <div class="stat"><div class="k">槓桿率</div><div class="v num" id="stLev">—</div><div class="s muted num" id="stLevSub"></div></div>
+  </div>
+
+  <!-- 持股 -->
+  <div class="card">
+    <div class="card-head">
+      <h2>持股</h2>
+      <span class="muted" style="font-size:12px" id="syncInfo"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>代號</th><th>股數</th><th>均價</th><th>現價</th><th>今日</th><th>市值 (USD)</th><th>佔比</th>
+        </tr></thead>
+        <tbody id="holdingsBody"></tbody>
+      </table>
+    </div>
+    <div class="muted" style="font-size:12px;margin-top:8px" id="optNote"></div>
+  </div>
+
+  <!-- 走勢 -->
+  <div class="card">
+    <div class="card-head">
+      <h2>總資產走勢 <span class="muted" style="font-weight:400;font-size:12px" id="chartCurLabel"></span></h2>
+      <span style="display:flex;gap:8px;align-items:center">
+      <button class="ghost" id="rebuildBtn" title="用全部交易紀錄與歷史收盤價重新計算過去每天的總資產">↻ 重新計算</button>
+      <span class="seg" id="rangeSeg">
+        <button data-range="30">1月</button><button data-range="90">3月</button><button data-range="180">6月</button><button data-range="ytd">今年</button><button data-range="365">1年</button><button data-range="0">全部</button>
+      </span>
+      </span>
+    </div>
+    <div class="chart-box" id="chartBox"></div>
+    <div class="muted" style="font-size:12px;margin-top:8px">過去的走勢由交易紀錄與歷史收盤價推算，匯入券商檔案後會自動重新計算；今天的數字隨股價即時更新。</div>
+  </div>
+
+  <!-- 報酬率比較 -->
+  <div class="card">
+    <div class="card-head">
+      <h2>報酬率比較 <span class="muted" style="font-weight:400;font-size:12px">（時間加權，美元計價）</span></h2>
+      <span class="seg" id="cmpRangeSeg">
+        <button data-crange="30">1月</button><button data-crange="90">3月</button><button data-crange="180">6月</button><button data-crange="ytd">今年</button><button data-crange="365">1年</button><button data-crange="0">全部</button>
+      </span>
+    </div>
+    <div class="legend" id="cmpLegend"></div>
+    <div class="chart-box" id="cmpBox"></div>
+    <div class="compare-note" id="cmpNote"></div>
+  </div>
+
+  <!-- 交易紀錄 -->
+  <div class="card">
+    <div class="card-head">
+      <h2>已實現損益與紀錄</h2>
+      <div class="filters seg" id="txFilter">
+        <button data-f="all">全部</button><button data-f="trade">股票</button><button data-f="option">選擇權</button><button data-f="cash">資金・股息</button>
+      </div>
+    </div>
+    <div id="pnlGrid"></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>日期</th><th style="text-align:left">類型</th><th style="text-align:left">內容</th><th>金額</th><th>備註</th></tr></thead>
+        <tbody id="txBody"></tbody>
+      </table>
+    </div>
+    <div style="text-align:center;margin-top:8px"><button class="ghost" id="moreTx" hidden>顯示更多</button></div>
+  </div>
+
+  <!-- 設定 -->
+  <div class="card">
+    <div class="card-head"><h2>設定與備份</h2></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button id="exportBtn">下載備份 (JSON)</button>
+      <button id="undoImportBtn" hidden>復原上次券商匯入</button>
+      <label class="check" style="margin:0 0 0 8px"><input type="checkbox" id="usColors"> 使用美股配色（綠漲紅跌）</label>
+    </div>
+    <div class="muted" style="font-size:12px;margin-top:10px">所有數字都來自券商檔案：持股依持倉檔校正，現金由交易紀錄推算。資料存在本機資料夾的 data.json，每天自動備份到 backups/。</div>
+  </div>
+</div>
+
+<dialog id="modal"><form method="dialog" class="modal-body" id="modalForm"></form></dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+// ============ State ============
+let data = null;
+let quotes = {};           // symbol -> {price, prevClose, name}
+let fx = null;             // USD -> TWD
+let fxPrev = null;
+let bench = null;
+let optQuotes = {};        // 選擇權報價（Yahoo 延遲約 20 分鐘）          // 歷史收盤價 {VOO:{date:close}, QQQ:..., ^IRX:...}
+
+// 常見槓桿／反向 ETF 的倍數（可在「改」裡面覆寫）
+const LEV_DEFAULT = {
+  GGLL: 2, TSLL: 2, METU: 2, MUU: 2, ORCX: 2, NVDL: 2, NVDU: 2, AAPU: 2, AMZU: 2, MSFU: 2, CONL: 2, AVL: 2,
+  SSO: 2, QLD: 2, USD: 2, ROM: 2, PLTU: 2, MSTU: 2, TSMX: 2, AMDL: 2,
+  TQQQ: 3, UPRO: 3, SPXL: 3, SOXL: 3, TECL: 3, FNGU: 3, TNA: 3, LABU: 3, UDOW: 3,
+  SH: -1, PSQ: -1, TSLQ: -1, SDS: -2, QID: -2, SQQQ: -3, SPXU: -3, SPXS: -3, SOXS: -3, TZA: -3,
+};
+const levOf = s => data.settings.leverage?.[s] ?? LEV_DEFAULT[s] ?? 1;
+const OPT_RE = /^[A-Z.]+\d{6}[CP]\d{8}$/;
+let lastUpdate = null;
+let chartRange = '0';      // 總資產走勢的區間：天數、'ytd' 或 '0'（全部）
+let cmpRange = '0';        // 報酬率比較的區間
+function rangeCutoff(r) {
+  if (r === 'ytd') return new Date().getFullYear() + '-01-01';
+  if (!+r) return '';
+  const d = new Date(Date.now() - +r * 864e5 - new Date().getTimezoneOffset() * 6e4);
+  return d.toISOString().slice(0, 10);
+}
+const inRange = (hist, r) => { const c = rangeCutoff(r); return c ? hist.filter(h => h.date >= c) : hist; };
+let txFilter = 'all';
+let txLimit = 30;
+
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const today = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const round = (n, d = 6) => Math.round(n * 10 ** d) / 10 ** d;
+
+function fmt(n, cur = 'USD', opts = {}) {
+  if (n == null || isNaN(n)) return '—';
+  const digits = opts.digits ?? (cur === 'TWD' ? 0 : 2);
+  const s = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  const sign = opts.sign ? (n > 0 ? '+' : n < 0 ? '−' : '') : (n < 0 ? '−' : '');
+  const sym = cur === 'TWD' ? 'NT$' : cur === 'USD' ? '$' : '';
+  return sign + sym + s;
+}
+const fmtPct = n => n == null || !isFinite(n) ? '—' : (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n * 100).toFixed(2) + '%';
+const cls = n => n > 0 ? 'up' : n < 0 ? 'down' : 'muted';
+const fmtShares = n => (+n).toLocaleString('en-US', { maximumFractionDigits: 6 });
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ============ Persistence ============
+async function load() {
+  const r = await fetch('/api/data');
+  data = await r.json();
+  data.cash ??= { USD: 0, TWD: 0 };
+  data.holdings ??= {};
+  data.transactions ??= [];
+  data.history ??= [];
+  data.settings ??= { displayCurrency: 'TWD' };
+  if (data.settings.lastFx) ({ rate: fx, prev: fxPrev } = data.settings.lastFx);
+}
+let saveTimer = null;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      if (r.status === 409) { toast('資料已在別處更新，重新載入中…'); setTimeout(() => location.reload(), 1200); return; }
+      if (!r.ok) throw new Error();
+      data.rev = (await r.json()).rev;
+    } catch { toast('⚠️ 儲存失敗，請確認伺服器仍在執行'); }
+  }, 150);
+}
+
+// ============ Quotes ============
+async function refreshQuotes() {
+  const optSyms = realizedStats().openPos.map(o => o.symbol);
+  const roots = optSyms.map(s => occ(s)?.root).filter(Boolean);   // 標的股價：算 delta 用
+  const syms = [...new Set([...Object.keys(data.holdings), ...roots])];
+  const btn = $('#refreshBtn');
+  btn.innerHTML = '<span class="spin">↻</span> 更新中';
+  try {
+    const r = await fetch('/api/quotes?symbols=' + encodeURIComponent([...syms, 'TWD=X'].join(',')));
+    const q = await r.json();
+    let failed = [];
+    for (const [s, v] of Object.entries(q)) {
+      if (v.error || v.price == null) { if (s !== 'TWD=X') failed.push(s); continue; }
+      if (s === 'TWD=X') { fx = v.price; fxPrev = v.prevClose; data.settings.lastFx = { rate: fx, prev: fxPrev }; }
+      else quotes[s] = v;
+    }
+    if (optSyms.length) {
+      const oq = await (await fetch('/api/options?symbols=' + encodeURIComponent(optSyms.join(',')))).json();
+      for (const [s, v] of Object.entries(oq)) {
+        if (v.error || v.mark == null) failed.push(optName(s));
+        else optQuotes[s] = v;
+      }
+    }
+    lastUpdate = new Date();
+    if (failed.length) toast('查不到報價：' + failed.join(', '));
+    recordHistory();
+  } catch {
+    toast('⚠️ 無法取得股價（網路或伺服器問題）');
+  }
+  btn.innerHTML = '↻ 更新';
+  render();
+}
+
+// ============ Calculations ============
+function calc() {
+  let stock = 0, cost = 0, day = 0, exposure = 0, missing = [];
+  const rows = Object.entries(data.holdings).map(([sym, h]) => {
+    const q = quotes[sym];
+    const price = q?.price;
+    const value = price != null ? h.shares * price : null;
+    const avg = h.shares ? h.cost / h.shares : 0;
+    const dayChg = q?.prevClose ? h.shares * (price - q.prevClose) : null;
+    const lev = levOf(sym);
+    if (value != null) { stock += value; cost += h.cost; day += dayChg || 0; exposure += value * lev; } else missing.push(sym);
+    return { sym, ...h, avg, price, value, lev,
+             dayPct: q?.prevClose ? price / q.prevClose - 1 : null, name: q?.name };
+  });
+  rows.sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+  // 未平倉選擇權：用買賣價中間價計價（沒有報價時用成本）；曝險 = 口數 × 100 × delta × 標的價 × 標的槓桿
+  let optValue = 0;
+  const optRows = realizedStats().openPos.map(o => {
+    const q = optQuotes[o.symbol], oc = occ(o.symbol), S = quotes[oc?.root]?.price;
+    const mark = q?.mark ?? null;
+    const value = mark != null ? o.qty * mark * 100 : o.cost;
+    const delta = mark != null ? optDelta(o.symbol, mark, S) : null;
+    if (q?.price != null && q.prevClose) day += o.qty * 100 * (q.price - q.prevClose);
+    if (delta != null) exposure += o.qty * 100 * delta * S * levOf(oc.root);
+    optValue += value;
+    return { sym: o.symbol, qty: o.qty, avg: o.cost / o.qty / 100, mark, bid: q?.bid, ask: q?.ask, value, delta,
+             dayPct: q?.price != null && q.prevClose ? q.price / q.prevClose - 1 : null, time: q?.time };
+  }).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+  const cashUSD = data.cash.USD || 0;
+  const totalUSD = stock + optValue + cashUSD;
+  return { rows, optRows, optValue, stock, cost, day, exposure, missing, cashUSD, totalUSD, totalTWD: fx ? totalUSD * fx : null,
+           leverage: totalUSD > 0 ? exposure / totalUSD : null };
+}
+// 把美元金額轉成顯示幣別
+const conv = (usd, cur) => cur === 'TWD' ? (fx ? usd * fx : null) : usd;
+
+function recordHistory() {
+  const c = calc();
+  if (c.missing.length || !fx) return;
+  const d = today();
+  const entry = { date: d, usd: round(c.totalUSD, 2), twd: round(c.totalTWD, 0), fx: round(fx, 4), exp: round(c.exposure, 2) };
+  const last = data.history[data.history.length - 1];
+  if (last && last.date === d) {
+    if (last.usd === entry.usd && last.twd === entry.twd) return;
+    data.history[data.history.length - 1] = entry;
+  } else data.history.push(entry);
+  save();
+}
+
+// ============ Render ============
+function render() {
+  const cur = data.settings.displayCurrency;
+  const c = calc();
+  document.documentElement.classList.toggle('us-colors', !!data.settings.usColors);
+  $('#usColors').checked = !!data.settings.usColors;
+  $$('#curSeg button').forEach(b => b.classList.toggle('on', b.dataset.cur === cur));
+  $$('#rangeSeg button').forEach(b => b.classList.toggle('on', b.dataset.range === chartRange));
+  $$('#cmpRangeSeg button').forEach(b => b.classList.toggle('on', b.dataset.crange === cmpRange));
+  $$('#txFilter button').forEach(b => b.classList.toggle('on', b.dataset.f === txFilter));
+
+  // hero
+  $('#heroTotal').textContent = cur === 'TWD' ? fmt(c.totalTWD, 'TWD') : fmt(c.totalUSD, 'USD');
+  const dayBase = c.stock + c.optValue - c.day;
+  $('#heroDay').innerHTML = `<span class="muted">今日</span> <span class="${cls(c.day)}">${fmt(conv(c.day, cur), cur, { sign: true })} (${fmtPct(dayBase ? c.day / dayBase : null)})</span>`;
+  $('#fxInfo').textContent = fx ? `USD/TWD ${fx.toFixed(3)}` : '';
+  $('#updatedAt').textContent = lastUpdate ? '更新於 ' + lastUpdate.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '尚未更新';
+
+  // stats
+  $('#stStock').textContent = fmt(c.stock + c.optValue, 'USD');
+  $('#stStockSub').innerHTML = `<span class="muted">${c.optRows.length ? `股票 ${fmt(c.stock, 'USD', { digits: 0 })}・選擇權 ${fmt(c.optValue, 'USD', { digits: 0 })}` : fx ? `≈ ${fmt(c.stock * fx, 'TWD')}` : ''}</span>`;
+  $('#stUSD').textContent = fmt(c.cashUSD, 'USD');
+  $('#stUSDSub').textContent = fx ? '≈ ' + fmt(c.cashUSD * fx, 'TWD') : '';
+  $('#stFx').textContent = fx ? fx.toFixed(3) : '—';
+  $('#stLev').textContent = c.leverage != null ? c.leverage.toFixed(2) + 'x' : '—';
+  $('#stLevSub').textContent = c.leverage != null ? `曝險 ${fmt(c.exposure, 'USD', { digits: 0 })} ／ 淨資產 ${fmt(c.totalUSD, 'USD', { digits: 0 })}` : '';
+  $('#stFxSub').innerHTML = fx && fxPrev ? `<span class="${cls(fx - fxPrev)}">${fx - fxPrev >= 0 ? '+' : '−'}${Math.abs(fx - fxPrev).toFixed(3)}</span> <span class="muted">較前日・自動更新</span>` : '<span class="muted">自動更新</span>';
+
+  // holdings
+  const hb = $('#holdingsBody');
+  if (!c.rows.length) {
+    hb.innerHTML = `<tr><td colspan="7" class="empty">還沒有持股，上傳券商的持倉檔或交易紀錄開始</td></tr>`;
+  } else {
+    const totalAssetUSD = c.totalUSD || c.stock || 1;
+    hb.innerHTML = c.rows.map(r => {
+      const share = r.value != null ? r.value / totalAssetUSD : 0;
+      return `<tr>
+        <td><span class="sym">${esc(r.sym)}</span>${r.lev !== 1 ? `<span class="lev">${r.lev}x</span>` : ''}<span class="sym-name">${esc(r.name || '')}</span></td>
+        <td class="num">${fmtShares(r.shares)}</td>
+        <td class="num">${fmt(r.avg)}</td>
+        <td class="num">${r.price != null ? fmt(r.price) : '<span class="muted">—</span>'}</td>
+        <td class="num ${cls(r.dayPct)}">${fmtPct(r.dayPct)}</td>
+        <td class="num">${fmt(r.value)}</td>
+        <td class="num"><div class="alloc"><span>${(share * 100).toFixed(1)}%</span><div class="alloc-bar"><i style="width:${Math.min(100, share * 100)}%"></i></div></div></td>
+      </tr>`;
+    }).join('') + c.optRows.map(o => {
+      const share = o.value / totalAssetUSD;
+      return `<tr>
+        <td><span class="sym">${esc(optName(o.sym))}</span><span class="sym-name">選擇權${o.delta != null ? `・Δ ${o.delta.toFixed(2)}` : ''}</span></td>
+        <td class="num">${o.qty > 0 ? '' : '−'}${fmtShares(Math.abs(o.qty))} 口</td>
+        <td class="num">${fmt(o.avg)}</td>
+        <td class="num">${o.mark != null ? fmt(o.mark) + (o.bid != null ? `<span class="sym-name">買 ${fmt(o.bid)}／賣 ${fmt(o.ask)}</span>` : '') : '<span class="muted">—</span>'}</td>
+        <td class="num ${cls(o.dayPct * Math.sign(o.qty))}" title="合約價格漲跌；顏色依對你的損益（賣方部位價格上漲是虧損）">${fmtPct(o.dayPct)}</td>
+        <td class="num">${fmt(o.value)}</td>
+        <td class="num"><div class="alloc"><span>${(share * 100).toFixed(1)}%</span><div class="alloc-bar"><i style="width:${Math.min(100, Math.abs(share) * 100)}%"></i></div></div></td>
+      </tr>`;
+    }).join('');
+  }
+  const lastOptTime = Math.max(0, ...c.optRows.map(o => o.time || 0));
+  $('#optNote').textContent = c.optRows.length
+    ? `選擇權以買賣價的中間價計價，報價來自 Yahoo，延遲約 20 分鐘` + (lastOptTime ? `（最後成交 ${new Date(lastOptTime * 1000).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}）` : '') + '；賣方部位市值為負。'
+    : '';
+
+  renderChart();
+  renderCompare();
+  renderTx();
+  $('#undoImportBtn').hidden = !data.imports?.length;
+  const lastTx = data.transactions.filter(t => t.imported).map(t => t.date).sort().at(-1);
+  $('#syncInfo').textContent = [data.settings.syncDate && `持倉檔同步至 ${data.settings.syncDate}`, lastTx && `交易紀錄至 ${lastTx}`].filter(Boolean).join('・');
+}
+
+// ============ 已實現損益 ============
+function realizedStats() {
+  const todayStr = today();
+  // 股票：平均成本法。紀錄開始前就持有的股數，用開始前一天的收盤價當成本
+  // 同一天內先買後賣（券商檔案沒有當天的成交先後，這樣才不會出現「賣出沒持股」）
+  const trades = data.transactions.filter(t => t.type === 'buy' || t.type === 'sell')
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.type === 'sell') - (b.type === 'sell') || a.ts - b.ts);
+  const init = {};
+  for (const [sym, h] of Object.entries(data.holdings)) init[sym] = h.shares;
+  for (const t of trades) init[t.symbol] = round((init[t.symbol] || 0) - (t.type === 'buy' ? t.shares : -t.shares));
+  const base = data.settings.base?.prices || {};
+  const book = {}, estimated = [];
+  for (const [sym, q] of Object.entries(init)) {
+    if (q <= 1e-9) continue;
+    const p = base[sym] ?? trades.find(t => t.symbol === sym)?.price ?? 0;
+    if (base[sym] == null) estimated.push(sym);
+    book[sym] = { q, cost: q * p };
+  }
+  const perSell = {}, bySym = {};
+  let stock = 0, sells = 0;
+  for (const t of trades) {
+    const b = book[t.symbol] ??= { q: 0, cost: 0 };
+    if (t.type === 'buy') { b.q = round(b.q + t.shares); b.cost += t.total; continue; }
+    const q = Math.min(t.shares, b.q), avg = b.q > 0 ? b.cost / b.q : 0;
+    // 賣超過已知持股的部分（資料不完整）以成交價當成本，不計損益
+    const r = t.total - avg * q - (t.shares - q) * (t.total / t.shares);
+    b.cost -= avg * q; b.q = round(b.q - q);
+    if (b.q <= 1e-9) { b.q = 0; b.cost = 0; }
+    perSell[t.id] = r; stock += r; sells++;
+    bySym[t.symbol] = (bySym[t.symbol] || 0) + r;
+  }
+  // 選擇權：同一合約用平均成本，每筆平倉的損益 = 平倉金額 − 對應的開倉成本；到期失效的另外補一列
+  const opts = {};
+  for (const t of data.transactions) if (t.type === 'option') (opts[t.symbol] ??= []).push(t);
+  const perOpt = {}, expiries = [], openPos = [];
+  let option = 0, closes = 0, expired = 0, open = 0, partial = 0;
+  for (const [sym, list] of Object.entries(opts)) {
+    list.sort((a, b) => a.date.localeCompare(b.date) || (a.action === 'close') - (b.action === 'close') || a.ts - b.ts);
+    let p = 0, carry = 0;   // 部位（口，買方為正）與帳面成本（付出為正、收到為負）
+    for (const t of list) {
+      const q = t.qty || 0;
+      const reduces = p !== 0 && Math.sign(p) !== Math.sign(q);
+      if (t.action === 'close' && !reduces) { perOpt[t.id] = null; partial++; continue; }   // 開倉在紀錄開始前
+      if (!reduces) { p = round(p + q); carry += -t.amount; continue; }
+      const used = Math.min(Math.abs(q), Math.abs(p));
+      const costOut = carry * used / Math.abs(p), closeAmt = t.amount * used / Math.abs(q);
+      const r = closeAmt - costOut;
+      perOpt[t.id] = r; option += r; closes++;
+      carry -= costOut; p = round(p + Math.sign(q) * used);
+      if (used < Math.abs(q)) { p = round(p + Math.sign(q) * (Math.abs(q) - used)); carry += -(t.amount - closeAmt); }   // 超出的部分視為反向開倉
+      if (!p) carry = 0;
+    }
+    if (!p) continue;
+    const exp = optExpiry(sym);
+    if (exp && exp < todayStr) {
+      const r = -carry;   // 到期失效：買方損失全部權利金、賣方賺到全部權利金
+      option += r; expired++;
+      expiries.push({ type: 'expire', id: 'exp-' + sym, date: exp, ts: 0, symbol: sym, qty: -p, desc: list.at(-1).desc, realized: r });
+    } else { open++; openPos.push({ symbol: sym, qty: p, cost: carry }); }
+  }
+  // 股息（稅後實收）、預扣稅退回、利息
+  let div = 0, divN = 0, refund = 0, interest = 0;
+  for (const t of data.transactions) {
+    if ((t.type !== 'income' && t.type !== 'expense') || t.currency !== 'USD') continue;
+    const v = (t.type === 'income' ? 1 : -1) * t.amount, c = t.category || '';
+    if (c.startsWith('股息')) { div += v; divN++; }
+    else if (c.startsWith('退稅')) refund += v;
+    else if (c.startsWith('利息')) interest += v;
+  }
+  return { stock, sells, perSell, bySym, estimated, option, perOpt, expiries, openPos, closes, expired, open, partial, div, divN, refund, interest };
+}
+function renderPnl(st) {
+  const ranked = Object.entries(st.bySym).sort((a, b) => b[1] - a[1]);
+  const best = ranked[0], worst = ranked.at(-1);
+  const baseDate = data.settings.base?.date;
+  const firstDate = data.transactions.filter(t => t.imported).map(t => t.date).sort()[0];
+  const sign = v => fmt(v, 'USD', { sign: true });
+  const dividends = st.div + st.refund;
+  const panels = {
+    all: { k: '總已實現損益', v: st.stock + st.option + dividends,
+      s: [firstDate ? `期間 ${firstDate} 起・股票 + 選擇權 + 股息` : ''],
+      parts: [['trade', '股票', st.stock], ['option', '選擇權', st.option], ['cash', '股息', dividends]] },
+    trade: { k: '股票已實現損益', v: st.stock,
+      s: [`${st.sells} 筆賣出・平均成本法`,
+          best && worst && best !== worst ? `最多 ${esc(best[0])} ${fmt(best[1], 'USD', { sign: true, digits: 0 })}・最少 ${esc(worst[0])} ${fmt(worst[1], 'USD', { sign: true, digits: 0 })}` : '',
+          baseDate ? `紀錄開始前的持股以 ${baseDate} 收盤價計成本` : ''] },
+    option: { k: '選擇權已實現損益', v: st.option,
+      s: [`${st.closes} 筆平倉` + (st.expired ? `・${st.expired} 個合約到期失效` : ''),
+          '每筆平倉損益 = 平倉金額 − 該合約的開倉成本',
+          st.open ? `${st.open} 個合約未平倉，不計入` : '',
+          st.partial ? `${st.partial} 筆平倉的開倉在紀錄開始前，缺成本不計入` : ''] },
+    cash: { k: '股息收入（稅後）', v: dividends,
+      s: [`${st.divN} 筆股息`, st.refund ? `含預扣稅退回 ${fmt(st.refund)}` : '', st.interest ? `另有利息 ${fmt(st.interest)}（未計入）` : ''] },
+  };
+  const pn = panels[txFilter] || panels.all;
+  $('#pnlGrid').innerHTML = `<div class="pnl-panel">
+    <div class="pnl-main"><div class="k">${pn.k}</div><div class="v num ${cls(pn.v)}">${sign(pn.v)}</div>
+      ${fx ? `<div class="s num">≈ ${fmt(pn.v * fx, 'TWD', { sign: true })}</div>` : ''}</div>
+    ${pn.parts ? `<div class="pnl-parts">${pn.parts.map(([f, k, v]) => `<button class="pnl-part" data-f="${f}"><span class="k">${k}</span><span class="num ${cls(v)}">${sign(v)}</span></button>`).join('')}</div>` : ''}
+    <div class="s pnl-notes">${pn.s.filter(Boolean).join('<br>')}</div>
+  </div>`;
+}
+
+function occ(sym) {
+  const m = String(sym).match(/^([A-Z.]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/);
+  return m && { root: m[1], exp: `20${m[2]}-${m[3]}-${m[4]}`, call: m[5] === 'C', strike: +m[6] / 1000 };
+}
+const normCdf = x => {   // 標準常態累積分布（Abramowitz–Stegun 近似）
+  const t = 1 / (1 + 0.2316419 * Math.abs(x)), d = 0.3989423 * Math.exp(-x * x / 2);
+  const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  return x > 0 ? 1 - p : p;
+};
+function bsModel(S, K, T, r, v, call) {
+  const d1 = (Math.log(S / K) + (r + v * v / 2) * T) / (v * Math.sqrt(T)), d2 = d1 - v * Math.sqrt(T);
+  const price = call ? S * normCdf(d1) - K * Math.exp(-r * T) * normCdf(d2) : K * Math.exp(-r * T) * normCdf(-d2) - S * normCdf(-d1);
+  return { price, delta: call ? normCdf(d1) : normCdf(d1) - 1 };
+}
+// 用報價反推隱含波動率，再算 delta（每股選擇權價格對標的價格的敏感度）
+function optDelta(sym, mark, S) {
+  const o = occ(sym);
+  if (!o || !(mark > 0) || !(S > 0)) return null;
+  const T = Math.max((new Date(o.exp + 'T20:00:00Z') - Date.now()) / (365 * 864e5), 1 / (365 * 24));
+  const irx = bench?.['^IRX'] && !bench['^IRX'].error ? lastOnOrBefore(bench['^IRX'], today()) : null;
+  const r = (irx ?? 4) / 100;
+  let lo = 0.01, hi = 5;
+  for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (bsModel(S, o.strike, T, r, mid, o.call).price > mark) hi = mid; else lo = mid; }
+  return bsModel(S, o.strike, T, r, (lo + hi) / 2, o.call).delta;
+}
+
+// 選擇權代號（OCC 格式，如 GGLL261016P00085000）→「PUT GGLL 10/16/26 @85」
+function optName(sym, fallback = '') {
+  const m = String(sym).match(/^([A-Z.]+)(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/);
+  if (!m) return fallback || sym;
+  return `${m[5] === 'C' ? 'CALL' : 'PUT'} ${m[1]} ${m[3]}/${m[4]}/${m[2]} @${+m[6] / 1000}`;
+}
+
+const TX_LABEL = { buy: '買進', sell: '賣出', income: '收入', expense: '支出', fx: '換匯', adjust: '調整持股', cashAdjust: '調整現金', option: '選擇權', expire: '到期' };
+function renderTx() {
+  const st = realizedStats();
+  renderPnl(st);
+  let list = [...data.transactions, ...st.expiries].sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
+  if (txFilter === 'trade') list = list.filter(t => ['buy', 'sell', 'adjust'].includes(t.type));
+  if (txFilter === 'option') list = list.filter(t => t.type === 'option' || t.type === 'expire');
+  if (txFilter === 'cash') list = list.filter(t => ['income', 'expense'].includes(t.type));
+  const shown = list.slice(0, txLimit);
+  $('#moreTx').hidden = list.length <= txLimit;
+  $('#txBody').innerHTML = shown.length ? shown.map(t => {
+    let content = '', amount = '';
+    switch (t.type) {
+      case 'buy': content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ ${fmt(t.price)}`; amount = t.fromCash ? `<span class="muted">${fmt(-t.total, 'USD')}</span>` : `<span class="muted">${fmt(t.total)}</span>`; break;
+      case 'sell': { const r = st.perSell[t.id]; content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ ${fmt(t.price)}`; amount = fmt(t.total, 'USD', { sign: true }) + (r != null ? `<br><span style="font-size:12px" class="${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>` : ''); break; }
+      case 'income': content = esc(t.category || '收入'); amount = `<span class="up">${fmt(t.amount, t.currency, { sign: true })}</span>`; break;
+      case 'expense': content = esc(t.category || '支出'); amount = `<span class="down">${fmt(-t.amount, t.currency, { sign: true })}</span>`; break;
+      case 'fx': content = `${fmt(t.fromAmount, t.from)} → ${fmt(t.toAmount, t.to)}`; amount = `<span class="muted">匯率 ${(t.from === 'TWD' ? t.fromAmount / t.toAmount : t.toAmount / t.fromAmount).toFixed(3)}</span>`; break;
+      case 'adjust': content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.before.shares)} → ${fmtShares(t.after.shares)} 股，成本 ${fmt(t.before.cost)} → ${fmt(t.after.cost)}`; break;
+      case 'option': {
+        const r = st.perOpt[t.id];
+        content = esc([t.action ? t.action.toUpperCase() : '', t.qty > 0 ? 'BUY' : t.qty < 0 ? 'SELL' : '', optName(t.symbol, t.desc)].filter(Boolean).join(' '));
+        amount = fmt(t.amount, 'USD', { sign: true }) + (t.id in st.perOpt
+          ? (r == null ? '<br><span class="muted" style="font-size:12px">缺開倉成本</span>' : `<br><span style="font-size:12px" class="${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>`)
+          : '');
+        break;
+      }
+      case 'expire':
+        content = esc(`EXPIRE ${optName(t.symbol, t.desc)}`) + ` <span class="muted">${fmtShares(Math.abs(t.qty))} 口</span>`;
+        amount = `<span class="muted">$0.00</span><br><span style="font-size:12px" class="${cls(t.realized)}">已實現 ${fmt(t.realized, 'USD', { sign: true })}</span>`;
+        break;
+      case 'cashAdjust': content = `${t.currency} 現金 ${fmt(t.before, t.currency)} → ${fmt(t.after, t.currency)}`; break;
+    }
+    return `<tr>
+      <td class="num">${t.date}</td>
+      <td style="text-align:left"><span class="tx-type">${TX_LABEL[t.type] || t.type}</span></td>
+      <td style="text-align:left">${content}</td>
+      <td class="num">${amount}</td>
+      <td class="muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(t.note || '')}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="5" class="empty">尚無紀錄</td></tr>`;
+}
+
+// ============ Chart ============
+function renderChart() {
+  const box = $('#chartBox');
+  const cur = data.settings.displayCurrency;
+  $('#chartCurLabel').textContent = '(' + cur + ')';
+  let pts = data.history.map(h => ({ date: h.date, v: cur === 'TWD' ? h.twd : h.usd }));
+  const cutoff = rangeCutoff(chartRange);
+  if (cutoff) pts = pts.filter(p => p.date >= cutoff);
+  if (pts.length < 2) {
+    box.innerHTML = `<div class="empty" style="padding-top:80px">資料累積兩天以上就會出現走勢圖（目前 ${pts.length} 筆）</div>`;
+    return;
+  }
+  const W = box.clientWidth, H = box.clientHeight, padL = 64, padR = 12, padT = 10, padB = 24;
+  const vals = pts.map(p => p.v);
+  let min = Math.min(...vals), max = Math.max(...vals);
+  if (min === max) { min *= 0.98; max *= 1.02; }
+  const pad = (max - min) * 0.1; min -= pad; max += pad;
+  const t0 = +new Date(pts[0].date), t1 = +new Date(pts[pts.length - 1].date);
+  const x = d => padL + (+new Date(d) - t0) / (t1 - t0) * (W - padL - padR);
+  const y = v => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + x(p.date).toFixed(1) + ',' + y(p.v).toFixed(1)).join('');
+  const area = line + `L${x(pts[pts.length - 1].date).toFixed(1)},${H - padB}L${padL},${H - padB}Z`;
+  const ticks = [0, 0.5, 1].map(f => min + (max - min) * f);
+  const compact = v => cur === 'TWD'
+    ? (v >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : (v / 1e3).toFixed(0) + 'K')
+    : (v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : '$' + (v / 1e3).toFixed(1) + 'K');
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="總資產走勢">
+    <defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/>
+    </linearGradient></defs>
+    ${ticks.map(t => `<line x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" stroke-dasharray="2 4"/>
+      <text class="axis-text" x="${padL - 8}" y="${y(t) + 4}" text-anchor="end">${compact(t)}</text>`).join('')}
+    <text class="axis-text" x="${padL}" y="${H - 4}">${pts[0].date}</text>
+    <text class="axis-text" x="${W - padR}" y="${H - 4}" text-anchor="end">${pts[pts.length - 1].date}</text>
+    <path d="${area}" fill="url(#g)"/>
+    <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <line id="cx" y1="${padT}" y2="${H - padB}" stroke="var(--text-3)" stroke-width="1" visibility="hidden"/>
+    <circle id="cd" r="4.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>
+    <rect x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent" id="hit"/>
+  </svg><div class="chart-tip" id="tip" hidden></div>`;
+  const hit = box.querySelector('#hit'), cx = box.querySelector('#cx'), cd = box.querySelector('#cd'), tip = box.querySelector('#tip');
+  const move = e => {
+    const mx = e.clientX - box.getBoundingClientRect().left;
+    let best = pts[0];
+    for (const p of pts) if (Math.abs(x(p.date) - mx) < Math.abs(x(best.date) - mx)) best = p;
+    const px = x(best.date), py = y(best.v);
+    cx.setAttribute('x1', px); cx.setAttribute('x2', px); cx.setAttribute('visibility', 'visible');
+    cd.setAttribute('cx', px); cd.setAttribute('cy', py); cd.setAttribute('visibility', 'visible');
+    tip.hidden = false; tip.style.left = Math.min(Math.max(px, 70), W - 70) + 'px'; tip.style.top = py + 'px';
+    tip.innerHTML = `${best.date}　<b>${fmt(best.v, cur)}</b>`;
+  };
+  hit.addEventListener('pointermove', move);
+  hit.addEventListener('pointerleave', () => { cx.setAttribute('visibility', 'hidden'); cd.setAttribute('visibility', 'hidden'); tip.hidden = true; });
+}
+
+// ============ 報酬率比較 ============
+const BENCH = [
+  { key: 'me', name: '我的組合', short: '我的組合', color: 'var(--s1)' },
+  { key: 'VOO', name: 'S&P 500 (VOO)', short: 'S&P 500', color: 'var(--s2)' },
+  { key: 'QQQ', name: 'Nasdaq 100 (QQQ)', short: 'Nasdaq 100', color: 'var(--s3)' },
+  { key: '^IRX', name: '短期美債（13 週國庫券）', short: '短期美債', color: 'var(--s4)', dash: true },
+];
+async function loadBench() {
+  if (!data.history.length) return;
+  try {
+    const r = await fetch(`/api/history?symbols=VOO,QQQ,${encodeURIComponent('^IRX')}&from=${data.history[0].date}`);
+    bench = await r.json();
+  } catch { bench = null; }
+  renderCompare();
+}
+function lastOnOrBefore(series, d) {
+  let bd = '', v = null;
+  for (const k in series) if (k <= d && k > bd) { bd = k; v = series[k]; }
+  return v;
+}
+function externalFlows() {
+  const fxOn = d => (data.history.find(h => h.date >= d) || {}).fx || fx;
+  const out = [];
+  for (const t of data.transactions) {
+    if (t.initial) continue;
+    let amt;
+    if (t.type === 'income' || t.type === 'expense') {
+      if (/股息|利息|退稅/.test(t.category || '')) continue;
+      amt = t.type === 'income' ? t.amount : -t.amount;
+    } else continue;
+    out.push({ date: t.date, usd: t.currency === 'USD' ? amt : amt / fxOn(t.date) });
+  }
+  return out;
+}
+function compareSeries() {
+  const hist = inRange(data.history, cmpRange);
+  if (hist.length < 2) return null;
+  const flows = externalFlows();
+  // 時間加權報酬：每一段把當期的外部資金進出扣掉再連乘
+  let idx = 1;
+  const me = [{ date: hist[0].date, v: 0 }];
+  for (let i = 1; i < hist.length; i++) {
+    const a = hist[i - 1], b = hist[i];
+    const f = flows.filter(x => x.date > a.date && x.date <= b.date).reduce((s, x) => s + x.usd, 0);
+    if (a.usd > 0) idx *= (b.usd - f) / a.usd;
+    me.push({ date: b.date, v: idx - 1 });
+  }
+  const series = [{ ...BENCH[0], pts: me }];
+  if (!bench) return series;
+  for (const b of BENCH.slice(1, 3)) {
+    const s = bench[b.key];
+    if (!s || s.error) continue;
+    const p0 = lastOnOrBefore(s, hist[0].date);
+    if (!p0) continue;
+    series.push({ ...b, pts: hist.map(h => ({ date: h.date, v: lastOnOrBefore(s, h.date) / p0 - 1 })) });
+  }
+  const irx = bench['^IRX'];
+  if (irx && !irx.error) {
+    // ^IRX 是年化殖利率（%），按持有天數複利累積
+    let g = 1;
+    const pts = [{ date: hist[0].date, v: 0 }];
+    for (let i = 1; i < hist.length; i++) {
+      const y = lastOnOrBefore(irx, hist[i - 1].date) ?? lastOnOrBefore(irx, hist[i].date) ?? 0;
+      const days = (new Date(hist[i].date) - new Date(hist[i - 1].date)) / 864e5;
+      g *= (1 + y / 100) ** (days / 365);
+      pts.push({ date: hist[i].date, v: g - 1 });
+    }
+    series.push({ ...BENCH[3], pts });
+  }
+  return series;
+}
+function renderCompare() {
+  const box = $('#cmpBox'), leg = $('#cmpLegend'), note = $('#cmpNote');
+  const series = compareSeries();
+  if (!series) {
+    leg.innerHTML = ''; note.textContent = '';
+    box.innerHTML = `<div class="empty" style="padding-top:80px">資料累積兩天以上就會出現比較圖</div>`;
+    return;
+  }
+  const last = s => s.pts[s.pts.length - 1].v;
+  leg.innerHTML = series.map(s => `<span class="legend-item"><span class="swatch ${s.dash ? 'dash' : ''}" style="border-color:${s.color}"></span>${esc(s.name)} <b class="num">${fmtPct(last(s))}</b></span>`).join('');
+  const me = last(series[0]), spx = series.find(s => s.key === 'VOO'), rf = series.find(s => s.key === '^IRX');
+  note.innerHTML = [
+    spx && `相對 S&P 500：<b class="${cls(me - last(spx))}">${fmtPct(me - last(spx))}</b>`,
+    rf && `相對無風險利率：<b class="${cls(me - last(rf))}">${fmtPct(me - last(rf))}</b>`,
+    !bench && '大盤資料載入中…',
+  ].filter(Boolean).join('　·　') + '<br>入金、出金與生活支出不算進報酬；期間 ' + series[0].pts[0].date + ' ～ ' + series[0].pts.at(-1).date;
+
+  const W = box.clientWidth, H = box.clientHeight, padL = 52, padR = 84, padT = 10, padB = 24;
+  const dates = series[0].pts.map(p => p.date);
+  const all = series.flatMap(s => s.pts.map(p => p.v));
+  let min = Math.min(0, ...all), max = Math.max(0, ...all);
+  const pad = (max - min) * 0.08 || 0.01; min -= pad; max += pad;
+  const t0 = +new Date(dates[0]), t1 = +new Date(dates.at(-1));
+  const x = d => padL + (+new Date(d) - t0) / (t1 - t0) * (W - padL - padR);
+  const y = v => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
+  // 整齊的刻度間距：1 / 2 / 2.5 / 5 × 10^n
+  const raw = (max - min) / 4, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map(k => k * mag).find(v => v >= raw);
+  const ticks = [];
+  for (let t = Math.ceil(min / step) * step; t <= max + 1e-12; t += step) if (Math.abs(t) > step / 2) ticks.push(t);
+  const pctLabel = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v * 100).toFixed(step * 100 >= 1 ? 0 : 1) + '%';
+  // 線尾標籤：依高度排序後推開，避免重疊
+  const ends = series.map(s => ({ s, y: y(last(s)) })).sort((a, b) => a.y - b.y);
+  for (let i = 1; i < ends.length; i++) ends[i].y = Math.max(ends[i].y, ends[i - 1].y + 14);
+  const overflow = ends.length ? ends.at(-1).y - (H - padB) : 0;
+  if (overflow > 0) ends.forEach(e => e.y -= overflow);
+  const xEnd = x(dates.at(-1));
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="報酬率比較">
+    ${ticks.map(t => `<line x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" stroke-dasharray="2 4"/>
+      <text class="axis-text" x="${padL - 8}" y="${y(t) + 4}" text-anchor="end">${pctLabel(t)}</text>`).join('')}
+    <line x1="${padL}" x2="${W - padR}" y1="${y(0)}" y2="${y(0)}" stroke="var(--text-3)" stroke-width="1"/>
+    <text class="axis-text" x="${padL - 8}" y="${y(0) + 4}" text-anchor="end">0%</text>
+    <text class="axis-text" x="${padL}" y="${H - 4}">${dates[0]}</text>
+    <text class="axis-text" x="${xEnd}" y="${H - 4}" text-anchor="end">${dates.at(-1)}</text>
+    ${series.slice().reverse().map(s => `<path d="${s.pts.map((p, i) => (i ? 'L' : 'M') + x(p.date).toFixed(1) + ',' + y(p.v).toFixed(1)).join('')}"
+      fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" ${s.dash ? 'stroke-dasharray="5 4"' : ''}/>`).join('')}
+    ${ends.map(e => `<circle cx="${xEnd}" cy="${y(last(e.s))}" r="3" fill="${e.s.color}"/>
+      <text class="end-label" x="${xEnd + 8}" y="${e.y + 4}">${e.s.short}</text>`).join('')}
+    <line id="ccx" y1="${padT}" y2="${H - padB}" stroke="var(--text-3)" stroke-width="1" visibility="hidden"/>
+    <g id="cdots"></g>
+    <rect x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent" id="chit"/>
+  </svg><div class="chart-tip" id="ctip" hidden></div>`;
+  const hit = box.querySelector('#chit'), cx = box.querySelector('#ccx'), dots = box.querySelector('#cdots'), tip = box.querySelector('#ctip');
+  hit.addEventListener('pointermove', e => {
+    const mx = e.clientX - box.getBoundingClientRect().left;
+    let bi = 0;
+    dates.forEach((d, i) => { if (Math.abs(x(d) - mx) < Math.abs(x(dates[bi]) - mx)) bi = i; });
+    const px = x(dates[bi]);
+    cx.setAttribute('x1', px); cx.setAttribute('x2', px); cx.setAttribute('visibility', 'visible');
+    dots.innerHTML = series.map(s => `<circle cx="${px}" cy="${y(s.pts[bi].v)}" r="4" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/>`).join('');
+    tip.hidden = false;
+    tip.style.top = padT + 'px';
+    tip.style.left = px + 'px';
+    tip.style.transform = px > W / 2 ? 'translate(calc(-100% - 10px), 0)' : 'translate(10px, 0)';
+    tip.innerHTML = `<div style="margin-bottom:4px">${dates[bi]}</div>` +
+      series.map(s => `<div class="row"><span>${s.short}</span><b>${fmtPct(s.pts[bi].v)}</b></div>`).join('');
+  });
+  hit.addEventListener('pointerleave', () => { cx.setAttribute('visibility', 'hidden'); dots.innerHTML = ''; tip.hidden = true; });
+}
+
+// ============ 券商檔案匯入 ============
+function parseCSV(text) {
+  text = text.replace(/^﻿/, '');
+  const rows = [];
+  let row = [], cell = '', q = false;
+  const endRow = () => { row.push(cell); cell = ''; if (row.some(c => c.trim() !== '')) rows.push(row); row = []; };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+      else cell += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; endRow(); }
+    else cell += c;
+  }
+  endRow();
+  return rows;
+}
+async function readTables(file) {
+  if (/\.xlsx$/i.test(file.name)) {
+    const r = await fetch('/api/parse-xlsx', { method: 'POST', body: await file.arrayBuffer() });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || '無法讀取 xlsx');
+    return Object.values(j.sheets).map(rows => ({ rows }));
+  }
+  const buf = await file.arrayBuffer();
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { text = new TextDecoder('big5').decode(buf); }
+  return [{ rows: parseCSV(text) }];
+}
+const pnum = v => { if (typeof v === 'number') return v; const n = parseFloat(String(v ?? '').replace(/[,$\s]/g, '')); return isNaN(n) ? 0 : n; };
+// 依表頭判斷是「交易紀錄」還是「持倉」
+function classify(table) {
+  const hi = table.rows.findIndex(r => r.some(c => String(c).trim() === '代號'));
+  if (hi < 0) return null;
+  const head = table.rows[hi].map(c => String(c).trim()), col = n => head.indexOf(n);
+  const body = table.rows.slice(hi + 1);
+  if (col('交易類別') >= 0) {
+    return { kind: 'trades', rows: body.map(r => {
+      const [y, m, d] = String(r[col('日期')] ?? '').trim().split(/[\/\-]/);
+      if (!d) return null;
+      return { date: `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`, kind: String(r[col('交易類別')]).trim(),
+               qty: pnum(r[col('數量')]), desc: String(r[col('說明')] ?? '').trim(), sym: String(r[col('代號')] ?? '').trim().toUpperCase(),
+               price: pnum(r[col('價格')]), amt: pnum(r[col('金額')]) };
+    }).filter(Boolean) };
+  }
+  if (col('數量') >= 0 && col('成本') >= 0) {
+    return { kind: 'positions', rows: body.map(r => ({ sym: String(r[col('代號')] ?? '').trim().toUpperCase(), qty: pnum(r[col('數量')]), cost: pnum(r[col('成本')]) }))
+      .filter(r => r.sym && r.qty && !OPT_RE.test(r.sym)) };
+  }
+  return null;
+}
+const shortDesc = d => d.replace(/\s+(UNSOLICITED|S\/D:|EXEC TIME).*$/, '').replace(/^\*+/, '');
+
+function buildImport(trades, positions) {
+  const sync = data.settings.syncDate || '';
+  const existing = new Set(data.transactions.map(t => t.key).filter(Boolean));
+  const plan = { txs: [], adjusts: [], dup: 0, manual: [], skipped: [], ignored: 0, live: 0, logOnly: 0, opt: 0, deposits: 0, cash: 0, sync };
+  // 同一天可能有完全相同的兩筆交易，用出現次數區分
+  const seen = {};
+  trades.forEach((r, i) => { const b = [r.date, r.kind, r.sym, r.qty, r.price, r.amt].join('|'); seen[b] = (seen[b] || 0) + 1; r.key = b + '#' + seen[b]; r.i = i; });
+  const fresh = trades.filter(r => { if (existing.has(r.key)) { plan.dup++; return false; } return true; });
+
+  // 先找出手動記過的同一筆交易（同代號、同方向、同股數、日期差 3 天內）：改用券商的精確數字取代
+  const isStock = r => (/^(買進|賣出)/.test(r.kind) || r.kind === '其他') && r.sym && r.qty && !OPT_RE.test(r.sym);
+  const manual = data.transactions.filter(t => !t.key && !t.imported && (t.type === 'buy' || t.type === 'sell'));
+  const matchOf = new Map();
+  for (const r of fresh.filter(isStock)) {
+    const type = r.qty > 0 ? 'buy' : 'sell', shares = Math.abs(r.qty);
+    const cands = manual.filter(t => ![...matchOf.values()].includes(t) && t.type === type && t.symbol === r.sym &&
+      Math.abs(t.shares - shares) < 1e-6 && Math.abs(new Date(t.date) - new Date(r.date)) <= 3 * 864e5);
+    cands.sort((a, b) => Math.abs(new Date(a.date) - new Date(r.date)) - Math.abs(new Date(b.date) - new Date(r.date)));
+    if (cands[0]) { matchOf.set(r.key, cands[0]); plan.manual.push(cands[0]); }
+  }
+  // 模擬持股：先把被取代的手動紀錄還原
+  const sim = JSON.parse(JSON.stringify(data.holdings));
+  for (const m of plan.manual) {
+    const e = m.effects?.holding;
+    if (!e) continue;
+    const h = sim[e.symbol] ??= { shares: 0, cost: 0 };
+    h.shares = round(h.shares - e.shares); h.cost = round(h.cost - e.cost, 4);
+    if (h.shares <= 1e-9) delete sim[e.symbol];
+  }
+
+  const ordered = [...fresh].sort((a, b) => a.date.localeCompare(b.date) || (b.qty > 0) - (a.qty > 0) || a.i - b.i);
+  for (const r of ordered) {
+    // 持倉同步日之後的交易才更新持股與現金；之前的只記錄（持股已包含），但被取代的手動紀錄一定要重新套用
+    const live = r.date > sync || matchOf.has(r.key);
+    const isOpt = OPT_RE.test(r.sym);
+    const base = { date: r.date, imported: true, key: r.key, note: '券商匯入' };
+    let tx, eff = {};
+    if (isStock(r)) {
+      const type = r.qty > 0 ? 'buy' : 'sell', shares = Math.abs(r.qty);
+      if (type === 'buy') {
+        const total = round(-r.amt, 4);
+        tx = { type, symbol: r.sym, shares, price: r.price || round(total / shares, 4), fee: r.price ? round(total - shares * r.price, 4) : 0, total, fromCash: true, ...base,
+               note: r.kind === '其他' ? '股息再投入' : base.note };
+        if (live) {
+          eff = { holding: { symbol: r.sym, shares, cost: total }, cash: { USD: r.amt } };
+          const h = sim[r.sym] ??= { shares: 0, cost: 0 }; h.shares = round(h.shares + shares); h.cost = round(h.cost + total, 4);
+        }
+      } else {
+        const total = round(r.amt, 4);
+        tx = { type, symbol: r.sym, shares, price: r.price, fee: round(shares * r.price - total, 4), total, toCash: true, ...base };
+        if (live) {
+          const h = sim[r.sym], held = h?.shares || 0, q = Math.min(shares, held);
+          const costOut = q <= 0 ? 0 : q >= held - 1e-9 ? h.cost : round(h.cost / held * q, 4);
+          if (q < shares - 1e-9) plan.skipped.push(`${r.date} ${r.sym} 賣出 ${fmtShares(shares)} 股，但只持有 ${fmtShares(held)} 股`);
+          else tx.realized = round(total - costOut, 4);
+          eff = { cash: { USD: r.amt } };
+          if (q > 0) {
+            eff.holding = { symbol: r.sym, shares: -q, cost: -costOut };
+            h.shares = round(h.shares - q); h.cost = round(h.cost - costOut, 4);
+            if (h.shares <= 1e-9) delete sim[r.sym];
+          }
+        }
+      }
+    } else if (isOpt && r.amt) {
+      // 選擇權不追蹤部位，但權利金進出要算進現金（也用於重建歷史）
+      tx = { type: 'option', symbol: r.sym, qty: r.qty, desc: shortDesc(r.desc), amount: r.amt, ...base,
+             action: /CLOSING/.test(r.desc) || /平倉/.test(r.kind) ? 'close' : /OPEN/.test(r.desc) || /開倉/.test(r.kind) ? 'open' : null };
+      if (live) eff = { cash: { USD: r.amt } };
+      plan.opt++;
+    } else if (/存款|入金|匯入/.test(r.kind) && r.amt) {
+      tx = { type: r.amt > 0 ? 'income' : 'expense', amount: Math.abs(r.amt), currency: 'USD', category: r.amt > 0 ? '入金' : '出金', ...base };
+      if (live) eff = { cash: { USD: r.amt } };
+      plan.deposits++;
+    } else if (/提款|出金|匯出/.test(r.kind) && r.amt) {
+      tx = { type: 'expense', amount: Math.abs(r.amt), currency: 'USD', category: '出金', ...base };
+      if (live) eff = { cash: { USD: -Math.abs(r.amt) } };
+      plan.deposits++;
+    } else if (r.kind === '股息' && r.amt) {
+      tx = { type: 'income', amount: r.amt, currency: 'USD', category: `股息 ${r.sym}`.trim(), ...base, note: '券商匯入（已扣稅）' };
+      if (live) eff = { cash: { USD: r.amt } };
+    } else if (/利息/.test(r.kind) && r.amt) {
+      tx = { type: r.amt > 0 ? 'income' : 'expense', amount: Math.abs(r.amt), currency: 'USD', category: r.amt > 0 ? '利息' : '利息支出', ...base };
+      if (live) eff = { cash: { USD: r.amt } };
+    } else if (r.kind === '其他' && r.sym && r.amt) {
+      // 例如預扣稅退回
+      tx = { type: r.amt > 0 ? 'income' : 'expense', amount: Math.abs(r.amt), currency: 'USD', category: `退稅 ${r.sym}`, ...base, note: shortDesc(r.desc).slice(0, 40) };
+      if (live) eff = { cash: { USD: r.amt } };
+    } else {
+      if (r.kind === '其他' && !r.sym) { plan.ignored++; continue; }   // 帳戶間轉帳，進出互相抵銷
+      if (r.amt || r.qty) plan.skipped.push(`${r.date} ${r.kind}：${shortDesc(r.desc).slice(0, 40)}`);
+      continue;
+    }
+    tx.effects = eff;
+    plan.txs.push(tx);
+    live ? plan.live++ : plan.logOnly++;
+    plan.cash += eff.cash?.USD || 0;
+  }
+  for (const m of plan.manual) for (const [c, v] of Object.entries(m.effects?.cash || {})) if (c === 'USD') plan.cash -= v;
+  // 持倉檔 = 最新狀態：把（套用交易後的）持股校正成檔案上的股數與成本
+  if (positions) {
+    const target = {};
+    for (const p of positions) { const t = target[p.sym] ??= { shares: 0, cost: 0 }; t.shares = round(t.shares + p.qty); t.cost = round(t.cost + p.cost, 4); }
+    for (const sym of new Set([...Object.keys(sim), ...Object.keys(target)])) {
+      const before = sim[sym] ? { shares: sim[sym].shares, cost: sim[sym].cost } : { shares: 0, cost: 0 };
+      const after = target[sym] || { shares: 0, cost: 0 };
+      if (Math.abs(before.shares - after.shares) < 1e-6 && Math.abs(before.cost - after.cost) < 0.01) continue;
+      plan.adjusts.push({ type: 'adjust', date: today(), symbol: sym, before, after, note: '券商持倉校正',
+        effects: { holding: { symbol: sym, shares: round(after.shares - before.shares), cost: round(after.cost - before.cost, 4) } } });
+    }
+    const lastTrade = trades.map(t => t.date).sort().at(-1);
+    const yesterday = new Date(Date.now() - 864e5 - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+    plan.newSync = [sync, lastTrade || yesterday].sort().at(-1);
+  }
+  plan.hasPositions = !!positions;
+  return plan;
+}
+function applyImport(plan) {
+  const importId = uid(), ts = Date.now();
+  // 被券商紀錄取代的手動紀錄：先還原它的影響再移除（復原時會放回來）
+  const removed = [];
+  for (const m of plan.manual) {
+    applyEffects(m.effects || {}, -1);
+    data.transactions = data.transactions.filter(t => t !== m);
+    removed.push(m);
+  }
+  [...plan.txs, ...plan.adjusts].forEach((t, i) => {
+    t.id = uid(); t.ts = ts + i; t.importId = importId;
+    applyEffects(t.effects);
+    data.transactions.push(t);
+  });
+  data.imports = [...(data.imports || []), { id: importId, date: today(), prevSync: data.settings.syncDate ?? null, removed }];
+  if (plan.newSync) data.settings.syncDate = plan.newSync;
+  save(); render();
+  toast(`已匯入 ${plan.txs.length} 筆紀錄` + (plan.adjusts.length ? `、校正 ${plan.adjusts.length} 檔持股` : '') + '，重新計算走勢中…');
+  rebuildHistory();
+}
+function undoImport() {
+  const imp = data.imports?.pop();
+  if (!imp) return;
+  data.transactions.filter(t => t.importId === imp.id).sort((a, b) => b.ts - a.ts).forEach(t => applyEffects(t.effects, -1));
+  data.transactions = data.transactions.filter(t => t.importId !== imp.id);
+  for (const m of imp.removed || []) { applyEffects(m.effects || {}, 1); data.transactions.push(m); }
+  data.settings.syncDate = imp.prevSync ?? undefined;
+  save(); render();
+  toast('已復原上次券商匯入，重新計算走勢中…');
+  rebuildHistory();
+}
+async function handleBrokerFiles(files) {
+  if (!files.length) return;
+  try {
+    const tables = (await Promise.all(files.map(readTables))).flat();
+    const trades = [];
+    let positions = null;
+    for (const t of tables) {
+      const c = classify(t);
+      if (!c) continue;
+      if (c.kind === 'trades') trades.push(...c.rows);
+      else if (c.rows.length) (positions ??= []).push(...c.rows);
+    }
+    if (!trades.length && !positions) { toast('看不出檔案格式：需要券商的交易紀錄 CSV 或持倉檔'); return; }
+    openForm('brokerImport', buildImport(trades, positions));
+  } catch (err) { toast('⚠️ ' + err.message); }
+}
+
+// ============ 用交易紀錄重建歷史走勢 ============
+// 從「現在的持股與現金」沿著交易紀錄往回推，得到每個交易日收盤後的部位，再乘上當天收盤價與匯率。
+// 手動「調整持股／調整現金」視為修正（當作一直都是那樣），不算成當天發生的事件。
+function txEvents() {
+  const ev = [];
+  for (const t of data.transactions) {
+    const e = { date: t.date, cash: {} };
+    switch (t.type) {
+      case 'buy': e.sym = t.symbol; e.qty = t.shares; if (t.fromCash !== false) e.cash.USD = -t.total; break;
+      case 'sell': e.sym = t.symbol; e.qty = -t.shares; if (t.toCash !== false) e.cash.USD = t.total; break;
+      case 'income': if (t.initial) continue; e.cash[t.currency] = t.amount; break;
+      case 'expense': e.cash[t.currency] = -t.amount; break;
+      case 'fx': e.cash[t.from] = -t.fromAmount; e.cash[t.to] = t.toAmount; break;
+      case 'option': e.opt = t.symbol; e.qty = t.qty ?? 0; e.cash.USD = t.amount; e.close = t.action === 'close'; break;
+      default: continue;   // adjust / cashAdjust
+    }
+    ev.push(e);
+  }
+  return ev;
+}
+const optExpiry = s => { const m = s.match(/(\d{2})(\d{2})(\d{2})[CP]\d{8}$/); return m ? `20${m[1]}-${m[2]}-${m[3]}` : null; };
+
+let rebuilding = false;
+async function rebuildHistory() {
+  if (rebuilding) return;
+  rebuilding = true;
+  const btn = $('#rebuildBtn');
+  if (btn) btn.innerHTML = '<span class="spin">↻</span> 計算中';
+  try {
+    const ev = txEvents();
+    const todayStr = today();
+    const past = ev.filter(e => e.date < todayStr);
+    if (!past.length) return;
+    const start = past.map(e => e.date).sort()[0];
+    const stockSyms = [...new Set([...ev.filter(e => e.sym).map(e => e.sym), ...Object.keys(data.holdings)])];
+
+    const r = await fetch(`/api/history?symbols=${encodeURIComponent(['SPY', 'TWD=X', ...stockSyms].join(','))}&from=${start}`);
+    const px = await r.json();
+    const days = Object.keys(px.SPY && !px.SPY.error ? px.SPY : {}).filter(d => d >= start && d < todayStr).sort();
+    if (!days.length) throw new Error('抓不到歷史股價');
+
+    // 1) 往回推：每天收盤後的股數與現金
+    const pos = {}; for (const [s, h] of Object.entries(data.holdings)) pos[s] = h.shares;
+    const cash = { USD: data.cash.USD || 0 };
+    const desc = [...ev].sort((a, b) => b.date.localeCompare(a.date));
+    let k = 0;
+    const snap = {};
+    for (const d of [...days].reverse()) {
+      while (k < desc.length && desc[k].date > d) {
+        const e = desc[k++];
+        if (e.sym) pos[e.sym] = round((pos[e.sym] || 0) - e.qty);
+        for (const [c, v] of Object.entries(e.cash)) cash[c] = round((cash[c] || 0) - v, 4);
+      }
+      snap[d] = { pos: { ...pos }, cash: { ...cash } };
+    }
+    const init = { ...pos };   // 紀錄開始前的持股
+    while (k < desc.length) { const e = desc[k++]; if (e.sym) init[e.sym] = round((init[e.sym] || 0) - e.qty); }
+
+    // 2) 選擇權：以成本計價（持有期間不跳動），到期或平倉時才實現損益
+    const optEv = {};
+    for (const e of ev.filter(e => e.opt)) (optEv[e.opt] ??= []).push(e);
+    const optState = {};
+    for (const [s, list] of Object.entries(optEv)) {
+      list.sort((a, b) => a.date.localeCompare(b.date) || a.close - b.close);   // 同一天先開倉再平倉
+      const net = list.reduce((a, e) => a + e.qty, 0), exp = optExpiry(s);
+      // 已到期的部位現在一定是 0，期初就有的部位 = −淨交易量；以之後平倉的金額當期初帳面價值
+      let q0 = exp && exp < todayStr ? -net : 0, carry0 = 0, rem = q0;
+      for (const e of list) {
+        if (!rem || Math.sign(e.qty) === Math.sign(rem)) break;
+        const used = Math.min(Math.abs(e.qty), Math.abs(rem));
+        carry0 += e.cash.USD * used / Math.abs(e.qty || 1);
+        rem += Math.sign(e.qty) * used;
+      }
+      optState[s] = { list, i: 0, pos: q0, carry: q0 ? carry0 : 0, exp };
+    }
+    const optValue = d => {
+      let v = 0;
+      for (const o of Object.values(optState)) {
+        while (o.i < o.list.length && o.list[o.i].date <= d) {
+          const e = o.list[o.i++];
+          if (!o.pos || Math.sign(o.pos) === Math.sign(e.qty)) o.carry += -e.cash.USD;
+          else o.carry -= o.carry * Math.min(1, Math.abs(e.qty) / Math.abs(o.pos));
+          o.pos = round(o.pos + e.qty);
+          if (!o.pos) o.carry = 0;
+        }
+        if (o.exp && d > o.exp) { o.pos = 0; o.carry = 0; }
+        if (o.pos) v += o.carry;
+      }
+      return v;
+    };
+
+    // 3) 價格：Yahoo 收盤價；查不到的（下市、改名）用自己的成交價代替
+    const tradePx = {};
+    for (const t of data.transactions) if ((t.type === 'buy' || t.type === 'sell') && t.price) (tradePx[t.symbol] ??= {})[t.date] = t.price;
+    // 分割校正：Yahoo 歷史價已按之後的（反向）分割調整過，跟當時股數對不上；用自己的成交價比對算出倍數
+    const scale = {};
+    for (const [s, tp] of Object.entries(tradePx)) {
+      if (!px[s] || px[s].error) continue;
+      const ratios = Object.entries(tp).map(([d, p]) => { const c = px[s][d]; return c ? p / c : null; }).filter(Boolean).sort((a, b) => a - b);
+      if (!ratios.length) continue;
+      const med = ratios[Math.floor(ratios.length / 2)];
+      if (Math.abs(Math.log(med)) > 0.25) scale[s] = med;
+    }
+    const priceOf = (s, d) => {
+      const c = px[s] && !px[s].error ? lastOnOrBefore(px[s], d) : null;
+      if (c != null) return c * (scale[s] || 1);
+      const tp = tradePx[s];
+      if (!tp) return quotes[s]?.price ?? 0;
+      return lastOnOrBefore(tp, d) ?? tp[Object.keys(tp).sort()[0]];
+    };
+    const baseDate = new Date(new Date(start).getTime() - 864e5).toISOString().slice(0, 10);
+    data.settings.base = { date: baseDate, prices: Object.fromEntries(
+      Object.entries(init).filter(([, q]) => q > 1e-9).map(([sym]) => [sym, round(priceOf(sym, baseDate), 4)])) };
+    const fxSeries = px['TWD=X'] && !px['TWD=X'].error ? px['TWD=X'] : {};
+
+    const out = [];
+    for (const d of days) {
+      const s = snap[d], rate = lastOnOrBefore(fxSeries, d) || fx;
+      let stock = 0, exp = 0;
+      for (const [sym, q] of Object.entries(s.pos)) {
+        if (Math.abs(q) < 1e-9) continue;
+        const v = q * priceOf(sym, d);
+        stock += v; exp += v * levOf(sym);
+      }
+      const usd = stock + optValue(d) + s.cash.USD;
+      out.push({ date: d, usd: round(usd, 2), twd: Math.round(usd * rate), fx: round(rate, 4), exp: round(exp, 2), backfilled: true });
+    }
+    data.history = [...out, ...data.history.filter(h => h.date >= todayStr)];
+    const missing = stockSyms.filter(s => !px[s] || px[s].error);
+    save(); render(); loadBench();
+    console.info('split-adjusted', scale, 'missing', missing);
+    toast(`已重新計算 ${out.length} 天的走勢` + (missing.length ? `（${missing.join('、')} 查不到歷史價，以成交價估算）` : ''));
+  } catch (err) {
+    toast('⚠️ 重新計算失敗：' + err.message);
+  } finally {
+    rebuilding = false;
+    if (btn) btn.innerHTML = '↻ 重新計算';
+  }
+}
+
+// ============ Transactions (apply / revert) ============
+// 每筆紀錄都存下它對現金/持股造成的「變化量」，復原匯入時反向套用即可。
+function applyEffects(eff, dir = 1) {
+  for (const [c, d] of Object.entries(eff.cash || {})) data.cash[c] = round((data.cash[c] || 0) + dir * d, 4);
+  if (eff.holding) {
+    const { symbol, shares, cost } = eff.holding;
+    const h = data.holdings[symbol] || { shares: 0, cost: 0 };
+    h.shares = round(h.shares + dir * shares);
+    h.cost = round(h.cost + dir * cost, 4);
+    if (h.shares <= 1e-9) delete data.holdings[symbol]; else data.holdings[symbol] = h;
+  }
+}
+// ============ Modal forms ============
+const modal = $('#modal'), form = $('#modalForm');
+const FORMS = {
+  brokerImport: (plan) => {
+    const nothing = !plan.txs.length && !plan.adjusts.length && !plan.manual.length;
+    const li = [];
+    if (plan.txs.length) li.push(`新增 <b>${plan.txs.length}</b> 筆紀錄：${plan.live} 筆會更新持股與現金` +
+      (plan.logOnly ? `，${plan.logOnly} 筆只記錄（在 ${plan.sync} 持倉同步之前，持股已包含）` : ''));
+    if (plan.deposits) li.push(`其中存款／出金 ${plan.deposits} 筆`);
+    if (plan.opt) li.push(`其中選擇權 ${plan.opt} 筆：未平倉的合約會以 Yahoo 報價計入市值`);
+    if (plan.cash) li.push(`美元現金 ${fmt(plan.cash, 'USD', { sign: true })}（${fmt(data.cash.USD)} → ${fmt(data.cash.USD + plan.cash)}）`);
+    if (plan.dup) li.push(`已匯入過的 ${plan.dup} 筆：略過`);
+    if (plan.ignored) li.push(`<span class="muted">另有 ${plan.ignored} 筆帳戶間轉帳（進出互相抵銷），不需處理</span>`);
+    if (plan.manual.length) li.push(`你手動記錄過的 ${plan.manual.length} 筆：視為同一筆，改用券商的精確數字<br><span class="muted">${plan.manual.map(m => `${m.date} ${m.symbol} ${TX_LABEL[m.type]} ${fmtShares(m.shares)} 股`).join('<br>')}</span>`);
+    if (plan.skipped.length) li.push(`無法處理 ${plan.skipped.length} 筆：<br><span class="muted">${plan.skipped.slice(0, 5).map(esc).join('<br>')}${plan.skipped.length > 5 ? '<br>…' : ''}</span>`);
+    const adj = plan.adjusts.length
+      ? `<div style="font-size:13px;margin-bottom:6px">依持倉檔校正持股：</div>
+         <div class="table-wrap" style="margin:0"><table class="imp-table"><thead><tr><th>代號</th><th>股數</th><th>成本</th></tr></thead><tbody>
+         ${plan.adjusts.map(a => `<tr><td>${esc(a.symbol)}</td><td class="num">${fmtShares(a.before.shares)} → ${fmtShares(a.after.shares)}</td><td class="num">${fmt(a.before.cost)} → ${fmt(a.after.cost)}</td></tr>`).join('')}
+         </tbody></table></div>`
+      : plan.hasPositions ? '<div class="muted" style="font-size:13px;margin-bottom:12px">持倉檔與目前持股一致，不需校正。</div>' : '';
+    return {
+      title: '匯入券商檔案',
+      html: (nothing ? '<div class="empty" style="padding:12px 0">沒有新的資料要匯入</div>' : `<ul class="imp-list">${li.map(x => `<li>${x}</li>`).join('')}</ul>`) + adj,
+      noSubmit: nothing,
+      submit() { applyImport(plan); },
+    };
+  },
+};
+
+let current = null;
+function updatePreview() { const p = form.querySelector('.preview'); if (p && current.preview) p.innerHTML = current.preview() || ''; }
+function openForm(kind, arg) {
+  current = FORMS[kind](arg);
+  form.innerHTML = `<h3>${current.title}</h3>${current.html}
+    ${current.preview ? '<div class="preview"></div>' : ''}<div class="err" id="f_err" hidden></div>
+    <div class="modal-actions"><button type="button" id="f_cancel">取消</button>${current.noSubmit ? '' : '<button class="primary" type="submit">確認</button>'}</div>`;
+  form.querySelector('#f_cancel').onclick = () => modal.close();
+  form.oninput = updatePreview;
+  current.onOpen?.();
+  updatePreview();
+  modal.showModal();
+}
+form.addEventListener('submit', e => {
+  e.preventDefault();
+  const err = current.submit();
+  if (err) { const el = form.querySelector('#f_err'); el.textContent = err; el.hidden = false; return; }
+  modal.close();
+});
+
+// ============ Events ============
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.cur) { data.settings.displayCurrency = b.dataset.cur; save(); render(); }
+  else if (b.dataset.range) { chartRange = b.dataset.range; renderChart(); $$('#rangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
+  else if (b.dataset.crange) { cmpRange = b.dataset.crange; renderCompare(); $$('#cmpRangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
+  else if (b.dataset.f) { txFilter = b.dataset.f; txLimit = 30; render(); }
+});
+$('#refreshBtn').onclick = refreshQuotes;
+$('#rebuildBtn').onclick = rebuildHistory;
+$('#moreTx').onclick = () => { txLimit += 50; renderTx(); };
+$('#usColors').onchange = e => { data.settings.usColors = e.target.checked; save(); render(); };
+$('#exportBtn').onclick = () => {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `assets-${today()}.json`; a.click();
+};
+$('#brokerBtn').onclick = () => $('#brokerFile').click();
+$('#brokerFile').onchange = e => { const f = [...e.target.files]; e.target.value = ''; handleBrokerFiles(f); };
+// 也可以直接把檔案拖進網頁
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  const f = [...(e.dataTransfer?.files || [])].filter(f => /\.(csv|xlsx)$/i.test(f.name));
+  if (f.length) handleBrokerFiles(f);
+});
+$('#undoImportBtn').onclick = e => {
+  const b = e.currentTarget, reset = () => { delete b.dataset.confirm; b.textContent = '復原上次券商匯入'; };
+  if (b.dataset.confirm) { reset(); undoImport(); return; }
+  b.dataset.confirm = '1'; b.textContent = '確定復原？再按一次';
+  setTimeout(() => { if (b.dataset.confirm) reset(); }, 3000);
+};
+window.addEventListener('resize', () => { clearTimeout(window._rz); window._rz = setTimeout(() => { renderChart(); renderCompare(); }, 150); });
+// 每 60 秒自動更新；分頁回到前景時也更新
+setInterval(() => { if (!document.hidden) refreshQuotes(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && (!lastUpdate || Date.now() - lastUpdate > 30000)) refreshQuotes(); });
+
+(async () => { await load(); render(); await refreshQuotes(); loadBench(); })();
+setInterval(loadBench, 10 * 60000);
+</script>
+</body>
+</html>
