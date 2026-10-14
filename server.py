@@ -77,6 +77,134 @@ def _fetch_one(symbol):
     return {"error": err}
 
 
+# ---------- 富途 OpenD：美股盤前、盤中、盤後、夜盤即時報價（OpenD 沒開時自動改用 Yahoo） ----------
+FUTU_HOST, FUTU_PORT = "127.0.0.1", int(os.environ.get("FUTU_PORT", 11111))
+_futu = {"ctx": None, "retry_at": 0}
+_futu_lock = threading.Lock()
+_futu_bad = set()   # 富途查不到的代號
+FUTU_TIMEOUT = 5    # OpenD 超過幾秒沒回應就改用 Yahoo
+_futu_pool = None
+
+
+def _futu_call(fn, *args):
+    """在背景執行緒呼叫富途，超過 FUTU_TIMEOUT 秒沒回應就丟出 TimeoutError"""
+    global _futu_pool
+    from concurrent.futures import ThreadPoolExecutor
+    if _futu_pool is None:
+        _futu_pool = ThreadPoolExecutor(max_workers=1)
+    return _futu_pool.submit(fn, *args).result(timeout=FUTU_TIMEOUT)
+
+
+def _futu_ctx():
+    """取得（必要時建立）富途行情連線；OpenD 沒開就回傳 None，60 秒內不再重試"""
+    if _futu["ctx"] is not None:
+        return _futu["ctx"]
+    if time.time() < _futu["retry_at"]:
+        return None
+    _futu["retry_at"] = time.time() + 60
+    import socket
+    try:
+        socket.create_connection((FUTU_HOST, FUTU_PORT), timeout=1).close()
+        import futu as ft
+        ft.set_futu_debug_model(False)
+        try:
+            ft.logger.console_level = 50  # 只印嚴重錯誤，避免洗版伺服器記錄
+        except Exception:  # noqa: BLE001
+            pass
+        # 建立連線也可能卡住（OpenD 開著但沒回應），一樣套用逾時
+        _futu["ctx"] = _futu_call(lambda: ft.OpenQuoteContext(host=FUTU_HOST, port=FUTU_PORT))
+    except Exception:  # noqa: BLE001
+        global _futu_pool
+        _futu["ctx"] = None
+        _futu_pool = None
+    return _futu["ctx"]
+
+
+def _us_session(now=None):
+    """依美東時間判斷交易時段（不含假日判斷）"""
+    from zoneinfo import ZoneInfo
+    et = (now or datetime.now(ZoneInfo("America/New_York")))
+    m, wd = et.hour * 60 + et.minute, et.weekday()  # 週一 = 0
+    if wd < 5 and 240 <= m < 570:
+        return "pre"
+    if wd < 5 and 570 <= m < 960:
+        return "regular"
+    if wd < 5 and 960 <= m < 1200:
+        return "post"
+    # 夜盤：週日到週四晚上 20:00，到隔天 04:00
+    if (m >= 1200 and wd in (6, 0, 1, 2, 3)) or (m < 240 and wd < 5):
+        return "overnight"
+    return "closed"
+
+
+def _num(x):
+    """富途有時回傳 'N/A' 或 NaN：轉成數字，不行就回傳 None"""
+    try:
+        v = float(x)
+        return v if v == v and v > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_futu_quotes(symbols):
+    """回傳 {代號: 報價}；只處理一般美股代號，查不到的留給 Yahoo"""
+    us = [s for s in symbols if s.replace(".", "").replace("-", "").isalnum() and "=" not in s and not s.startswith("^")]
+    if not us:
+        return {}
+    us = [s for s in us if s not in _futu_bad]
+    with _futu_lock:
+        ctx = _futu_ctx()
+        if ctx is None or not us:
+            return {}
+        codes = ["US." + s.replace("-", ".") for s in us]
+        records = []
+        try:
+            ret, df = _futu_call(ctx.get_market_snapshot, codes)
+            if ret == 0:
+                records = df.to_dict("records")
+            else:
+                # 一次查多檔時只要有一檔查不到（代號不認得、沒權限）整批都會失敗，改成逐檔查
+                for s, c in zip(us, codes):
+                    r1, d1 = _futu_call(ctx.get_market_snapshot, [c])
+                    if r1 == 0:
+                        records += d1.to_dict("records")
+                    elif "未知" in str(d1) or "權限" in str(d1) or "unknown" in str(d1).lower():
+                        _futu_bad.add(s)   # 之後直接交給 Yahoo
+        except Exception:  # noqa: BLE001
+            # 連線斷了或卡住：關掉，60 秒後再試著重連；這次改用 Yahoo
+            global _futu_pool
+            try:
+                ctx.close()
+            except Exception:  # noqa: BLE001
+                pass
+            _futu["ctx"] = None
+            _futu["retry_at"] = time.time() + 60
+            _futu_pool = None   # 卡住的執行緒丟掉，下次開新的
+            return {}
+    session = _us_session()
+    out = {}
+    for r in records:
+        sym = r["code"].split(".", 1)[1]
+        last, prev = _num(r.get("last_price")), _num(r.get("prev_close_price"))
+        pick = {"pre": "pre_price", "post": "after_price", "overnight": "overnight_price"}.get(session)
+        ext = _num(r.get(pick)) if pick else None
+        if ext:
+            # 盤前、夜盤跟上一個正規盤收盤比；盤後跟前一天收盤比（含當天正規盤的漲跌）
+            price, ref = ext, (prev if session == "post" else last)
+            sess = session
+        else:
+            price, ref, sess = last, prev, "regular" if session == "regular" else "closed"
+        if not price:
+            continue
+        out[sym.replace(".", "-") if sym.replace(".", "-") in symbols else sym] = {
+            "price": price, "prevClose": ref, "regularPrice": last, "session": sess,
+            "name": r.get("name") or sym, "currency": "USD", "source": "futu",
+            "time": int(datetime.strptime(str(r["update_time"])[:19], "%Y-%m-%d %H:%M:%S").replace(
+                tzinfo=__import__("zoneinfo").ZoneInfo("America/New_York")).timestamp()) if r.get("update_time") else None,
+        }
+    return out
+
+
 def fetch_quotes(symbols):
     now = time.time()
     result, todo = {}, []
@@ -87,8 +215,22 @@ def fetch_quotes(symbols):
                 result[s] = hit[1]
             else:
                 todo.append(s)
-    for i in range(0, len(todo), 20):
-        chunk = todo[i:i + 20]
+    # 先用富途（含夜盤）；再用 Yahoo v7（盤前盤後）；最後用 spark 批次查正規盤價格
+    try:
+        result.update(fetch_futu_quotes(todo))
+    except Exception:  # noqa: BLE001
+        pass
+    todo_yahoo = [s for s in todo if s not in result]
+    for i in range(0, len(todo_yahoo), 50):
+        try:
+            for q in _v7_quote(todo_yahoo[i:i + 50]):
+                if q.get("regularMarketPrice") is not None:
+                    result[q["symbol"].upper()] = _stock_from_v7(q)
+        except Exception:  # noqa: BLE001
+            pass
+    rest = [s for s in todo if s not in result]
+    for i in range(0, len(rest), 20):
+        chunk = rest[i:i + 20]
         try:
             result.update(_fetch_batch(chunk))
         except Exception:  # noqa: BLE001
@@ -126,6 +268,45 @@ def _refresh_crumb():
     _crumb["value"] = _yget("https://query1.finance.yahoo.com/v1/test/getcrumb").strip()
 
 
+_crumb_lock = threading.Lock()
+
+
+def _v7_quote(symbols):
+    """Yahoo v7 quote（需要 crumb）：含盤前盤後價格、交易時段、選擇權買賣價。失敗時丟出例外"""
+    for attempt in range(2):
+        try:
+            with _crumb_lock:
+                if not _crumb["value"]:
+                    _refresh_crumb()
+                crumb = _crumb["value"]
+            url = ("https://query1.finance.yahoo.com/v7/finance/quote?symbols="
+                   + urllib.parse.quote(",".join(symbols), safe=",") + "&crumb=" + urllib.parse.quote(crumb))
+            return json.loads(_yget(url))["quoteResponse"]["result"]
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403) and attempt == 0:
+                _crumb["value"] = None  # 驗證碼過期，重拿一次
+                continue
+            raise
+
+
+def _stock_from_v7(q):
+    """依交易時段挑最新價格；prevClose 是「今日漲跌」的比較基準"""
+    state = q.get("marketState") or ""
+    reg, prev = q.get("regularMarketPrice"), q.get("regularMarketPreviousClose")
+    pre, post = q.get("preMarketPrice"), q.get("postMarketPrice")
+    if state == "PRE" and pre:
+        # 盤前：跟昨天收盤比
+        price, ref, session, t = pre, reg, "pre", q.get("preMarketTime")
+    elif state != "REGULAR" and post:
+        # 盤後，以及盤後結束到隔天盤前之間（夜盤時段 Yahoo 沒有資料，停在盤後最後價格）
+        price, ref, session, t = post, prev, "post", q.get("postMarketTime")
+    else:
+        price, ref, session, t = reg, prev, "regular" if state == "REGULAR" else "closed", q.get("regularMarketTime")
+    return {"price": price, "prevClose": ref, "regularPrice": reg, "session": session,
+            "name": q.get("longName") or q.get("shortName") or q["symbol"],
+            "currency": q.get("currency"), "time": t}
+
+
 def fetch_option_quotes(symbols):
     """回傳 {代號: {price, bid, ask, mark, prevClose, time, delay}}；Yahoo 標示選擇權延遲約 20 分鐘"""
     now = time.time()
@@ -134,21 +315,10 @@ def fetch_option_quotes(symbols):
         todo = [s for s in symbols if s not in out]
         if not todo:
             return out
-        for attempt in range(2):
-            try:
-                if not _crumb["value"]:
-                    _refresh_crumb()
-                url = ("https://query1.finance.yahoo.com/v7/finance/quote?symbols="
-                       + urllib.parse.quote(",".join(todo), safe=",") + "&crumb=" + urllib.parse.quote(_crumb["value"]))
-                res = json.loads(_yget(url))["quoteResponse"]["result"]
-                break
-            except urllib.error.HTTPError as e:
-                if e.code in (401, 403) and attempt == 0:
-                    _crumb["value"] = None  # 驗證碼過期，重拿一次
-                    continue
-                return {**out, **{s: {"error": str(e)} for s in todo}}
-            except Exception as e:  # noqa: BLE001
-                return {**out, **{s: {"error": str(e)} for s in todo}}
+        try:
+            res = _v7_quote(todo)
+        except Exception as e:  # noqa: BLE001
+            return {**out, **{s: {"error": str(e)} for s in todo}}
         for q in res:
             bid, ask, last = q.get("bid"), q.get("ask"), q.get("regularMarketPrice")
             # 交易量小的合約最後成交可能很久以前，有買賣價就用中間價

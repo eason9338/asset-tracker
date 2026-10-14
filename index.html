@@ -118,6 +118,7 @@ tbody tr:hover td { background: var(--surface-2); }
 .swatch.dash { border-top-style: dashed; }
 .compare-note { font-size: 12px; color: var(--text-3); margin-top: 8px; }
 .chart-tip .row { display: flex; justify-content: space-between; gap: 14px; }
+.sess { display: inline-block; font-size: 10px; font-weight: 600; padding: 0 5px; margin-left: 4px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); vertical-align: 1px; }
 .lev { display: inline-block; font-size: 10px; font-weight: 600; padding: 0 5px; margin-left: 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); vertical-align: 1px; }
 .imp-list { font-size: 13px; color: var(--text-2); margin: 0 0 12px; padding-left: 18px; }
 .imp-list li { margin-bottom: 4px; }
@@ -133,6 +134,8 @@ tbody tr:hover td { background: var(--surface-2); }
 .pnl-part { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: var(--surface); padding: 8px 12px; font-size: 15px; font-weight: 600; }
 .pnl-part .k { font-weight: 400; }
 .pnl-notes { flex: 1 1 220px; }
+.win-table { font-size: 13px; }
+.win-table th, .win-table td { padding: 5px 8px; }
 .tx-type { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--surface-2); color: var(--text-2); }
 .filters { display: flex; gap: 6px; flex-wrap: wrap; }
 
@@ -188,6 +191,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
       </div>
       <div>
         <div class="status">
+          <span id="sessionInfo"></span>
           <span id="fxInfo"></span>
         </div>
         <div class="status" style="margin-top:4px">
@@ -255,6 +259,19 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <div class="compare-note" id="cmpNote"></div>
   </div>
 
+  <!-- 槓桿率走勢 -->
+  <div class="card">
+    <div class="card-head">
+      <h2>槓桿率走勢</h2>
+      <span class="seg" id="levRangeSeg">
+        <button data-lrange="30">1月</button><button data-lrange="90">3月</button><button data-lrange="180">6月</button><button data-lrange="ytd">今年</button><button data-lrange="365">1年</button><button data-lrange="0">全部</button>
+      </span>
+    </div>
+    <div class="legend" id="levStats"></div>
+    <div class="chart-box" id="levBox"></div>
+    <div class="compare-note">槓桿率 = 曝險 ÷ 淨資產。槓桿 ETF 依倍數計入；買方選擇權以 delta 計算曝險（過去以標的 30 日實際波動率估算，今天用即時報價反推）；賣方選擇權（sell call／sell put）不計入。</div>
+  </div>
+
   <!-- 交易紀錄 -->
   <div class="card">
     <div class="card-head">
@@ -308,14 +325,21 @@ const levOf = s => data.settings.leverage?.[s] ?? LEV_DEFAULT[s] ?? 1;
 const OPT_RE = /^[A-Z.]+\d{6}[CP]\d{8}$/;
 let lastUpdate = null;
 let chartRange = '0';      // 總資產走勢的區間：天數、'ytd' 或 '0'（全部）
-let cmpRange = '0';        // 報酬率比較的區間
+let cmpRange = '0';
+let levRange = '0';        // 槓桿率走勢的區間        // 報酬率比較的區間
 function rangeCutoff(r) {
   if (r === 'ytd') return new Date().getFullYear() + '-01-01';
   if (!+r) return '';
   const d = new Date(Date.now() - +r * 864e5 - new Date().getTimezoneOffset() * 6e4);
   return d.toISOString().slice(0, 10);
 }
-const inRange = (hist, r) => { const c = rangeCutoff(r); return c ? hist.filter(h => h.date >= c) : hist; };
+// 區間從「開始日前的最後一個收盤」起算，例如「今年」從去年最後一個交易日的收盤開始
+const inRange = (hist, r) => {
+  const c = rangeCutoff(r);
+  if (!c) return hist;
+  const i = hist.findIndex(h => h.date >= c);
+  return i < 0 ? [] : hist.slice(Math.max(0, i - 1));
+};
 let txFilter = 'all';
 let txLimit = 30;
 
@@ -400,6 +424,19 @@ async function refreshQuotes() {
   render();
 }
 
+// 交易時段標示（夜盤 Yahoo 沒有資料，會停在盤後最後價格）
+const SESSION_TAG = { pre: '盤前', post: '盤後', overnight: '夜盤' };
+const SESSION_TEXT = { pre: '盤前交易中', regular: '盤中', post: '盤後交易中', overnight: '夜盤交易中', closed: '休市' };
+function marketSession() {
+  const q = Object.keys(data.holdings).map(k => quotes[k]).find(x => x?.session);
+  const s = q?.session, src = q?.source === 'futu' ? '・富途報價' : '・Yahoo 報價';
+  if (s !== 'post' || q?.source === 'futu') return SESSION_TEXT[s] ? SESSION_TEXT[s] + src : '';
+  // 盤後時段結束（美東 20:00）之後，到隔天盤前之前，Yahoo 停在盤後最後價格
+  const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const m = et.getHours() * 60 + et.getMinutes();
+  return m >= 16 * 60 && m < 20 * 60 ? SESSION_TEXT.post : '夜盤時段（無資料，顯示盤後最後價格）';
+}
+
 // ============ Calculations ============
 function calc() {
   let stock = 0, cost = 0, day = 0, exposure = 0, missing = [];
@@ -411,11 +448,12 @@ function calc() {
     const dayChg = q?.prevClose ? h.shares * (price - q.prevClose) : null;
     const lev = levOf(sym);
     if (value != null) { stock += value; cost += h.cost; day += dayChg || 0; exposure += value * lev; } else missing.push(sym);
-    return { sym, ...h, avg, price, value, lev,
+    return { sym, ...h, avg, price, value, lev, session: q?.session, regularPrice: q?.regularPrice,
              dayPct: q?.prevClose ? price / q.prevClose - 1 : null, name: q?.name };
   });
   rows.sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
   // 未平倉選擇權：用買賣價中間價計價（沒有報價時用成本）；曝險 = 口數 × 100 × delta × 標的價 × 標的槓桿
+  // 賣方部位（sell call / sell put）不計入曝險：通常是短天期賺時間價值，不是要承擔方向
   let optValue = 0;
   const optRows = realizedStats().openPos.map(o => {
     const q = optQuotes[o.symbol], oc = occ(o.symbol), S = quotes[oc?.root]?.price;
@@ -423,7 +461,7 @@ function calc() {
     const value = mark != null ? o.qty * mark * 100 : o.cost;
     const delta = mark != null ? optDelta(o.symbol, mark, S) : null;
     if (q?.price != null && q.prevClose) day += o.qty * 100 * (q.price - q.prevClose);
-    if (delta != null) exposure += o.qty * 100 * delta * S * levOf(oc.root);
+    if (delta != null && o.qty > 0) exposure += o.qty * 100 * delta * S * levOf(oc.root);
     optValue += value;
     return { sym: o.symbol, qty: o.qty, avg: o.cost / o.qty / 100, mark, bid: q?.bid, ask: q?.ask, value, delta,
              dayPct: q?.price != null && q.prevClose ? q.price / q.prevClose - 1 : null, time: q?.time };
@@ -458,6 +496,7 @@ function render() {
   $$('#curSeg button').forEach(b => b.classList.toggle('on', b.dataset.cur === cur));
   $$('#rangeSeg button').forEach(b => b.classList.toggle('on', b.dataset.range === chartRange));
   $$('#cmpRangeSeg button').forEach(b => b.classList.toggle('on', b.dataset.crange === cmpRange));
+  $$('#levRangeSeg button').forEach(b => b.classList.toggle('on', b.dataset.lrange === levRange));
   $$('#txFilter button').forEach(b => b.classList.toggle('on', b.dataset.f === txFilter));
 
   // hero
@@ -465,6 +504,8 @@ function render() {
   const dayBase = c.stock + c.optValue - c.day;
   $('#heroDay').innerHTML = `<span class="muted">今日</span> <span class="${cls(c.day)}">${fmt(conv(c.day, cur), cur, { sign: true })} (${fmtPct(dayBase ? c.day / dayBase : null)})</span>`;
   $('#fxInfo').textContent = fx ? `USD/TWD ${fx.toFixed(3)}` : '';
+  const sess = marketSession();
+  $('#sessionInfo').textContent = sess ? '美股' + sess : '';
   $('#updatedAt').textContent = lastUpdate ? '更新於 ' + lastUpdate.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '尚未更新';
 
   // stats
@@ -489,7 +530,7 @@ function render() {
         <td><span class="sym">${esc(r.sym)}</span>${r.lev !== 1 ? `<span class="lev">${r.lev}x</span>` : ''}<span class="sym-name">${esc(r.name || '')}</span></td>
         <td class="num">${fmtShares(r.shares)}</td>
         <td class="num">${fmt(r.avg)}</td>
-        <td class="num">${r.price != null ? fmt(r.price) : '<span class="muted">—</span>'}</td>
+        <td class="num">${r.price != null ? fmt(r.price) + (SESSION_TAG[r.session] ? ` <span class="sess">${SESSION_TAG[r.session]}</span><span class="sym-name">收盤 ${fmt(r.regularPrice)}</span>` : '') : '<span class="muted">—</span>'}</td>
         <td class="num ${cls(r.dayPct)}">${fmtPct(r.dayPct)}</td>
         <td class="num">${fmt(r.value)}</td>
         <td class="num"><div class="alloc"><span>${(share * 100).toFixed(1)}%</span><div class="alloc-bar"><i style="width:${Math.min(100, share * 100)}%"></i></div></div></td>
@@ -500,7 +541,7 @@ function render() {
         <td><span class="sym">${esc(optName(o.sym))}</span><span class="sym-name">選擇權${o.delta != null ? `・Δ ${o.delta.toFixed(2)}` : ''}</span></td>
         <td class="num">${o.qty > 0 ? '' : '−'}${fmtShares(Math.abs(o.qty))} 口</td>
         <td class="num">${fmt(o.avg)}</td>
-        <td class="num">${o.mark != null ? fmt(o.mark) + (o.bid != null ? `<span class="sym-name">買 ${fmt(o.bid)}／賣 ${fmt(o.ask)}</span>` : '') : '<span class="muted">—</span>'}</td>
+        <td class="num">${o.mark != null ? fmt(o.mark) + (o.bid > 0 && o.ask > 0 ? `<span class="sym-name">買 ${fmt(o.bid)}／賣 ${fmt(o.ask)}</span>` : '<span class="sym-name">收盤價・選擇權只在正規盤交易</span>') : '<span class="muted">—</span>'}</td>
         <td class="num ${cls(o.dayPct * Math.sign(o.qty))}" title="合約價格漲跌；顏色依對你的損益（賣方部位價格上漲是虧損）">${fmtPct(o.dayPct)}</td>
         <td class="num">${fmt(o.value)}</td>
         <td class="num"><div class="alloc"><span>${(share * 100).toFixed(1)}%</span><div class="alloc-bar"><i style="width:${Math.min(100, Math.abs(share) * 100)}%"></i></div></div></td>
@@ -514,6 +555,7 @@ function render() {
 
   renderChart();
   renderCompare();
+  renderLev();
   renderTx();
   $('#undoImportBtn').hidden = !data.imports?.length;
   const lastTx = data.transactions.filter(t => t.imported).map(t => t.date).sort().at(-1);
@@ -538,7 +580,7 @@ function realizedStats() {
     if (base[sym] == null) estimated.push(sym);
     book[sym] = { q, cost: q * p };
   }
-  const perSell = {}, bySym = {};
+  const perSell = {}, bySym = {}, stockEvents = [];
   let stock = 0, sells = 0;
   for (const t of trades) {
     const b = book[t.symbol] ??= { q: 0, cost: 0 };
@@ -549,12 +591,13 @@ function realizedStats() {
     b.cost -= avg * q; b.q = round(b.q - q);
     if (b.q <= 1e-9) { b.q = 0; b.cost = 0; }
     perSell[t.id] = r; stock += r; sells++;
+    stockEvents.push({ sym: t.symbol, date: t.date, r });
     bySym[t.symbol] = (bySym[t.symbol] || 0) + r;
   }
   // 選擇權：同一合約用平均成本，每筆平倉的損益 = 平倉金額 − 對應的開倉成本；到期失效的另外補一列
   const opts = {};
   for (const t of data.transactions) if (t.type === 'option') (opts[t.symbol] ??= []).push(t);
-  const perOpt = {}, expiries = [], openPos = [];
+  const perOpt = {}, expiries = [], openPos = [], optEvents = [];
   let option = 0, closes = 0, expired = 0, open = 0, partial = 0;
   for (const [sym, list] of Object.entries(opts)) {
     list.sort((a, b) => a.date.localeCompare(b.date) || (a.action === 'close') - (b.action === 'close') || a.ts - b.ts);
@@ -568,6 +611,7 @@ function realizedStats() {
       const costOut = carry * used / Math.abs(p), closeAmt = t.amount * used / Math.abs(q);
       const r = closeAmt - costOut;
       perOpt[t.id] = r; option += r; closes++;
+      optEvents.push({ sym, date: t.date, r, side: p > 0 ? 'long' : 'short', call: occ(sym)?.call });
       carry -= costOut; p = round(p + Math.sign(q) * used);
       if (used < Math.abs(q)) { p = round(p + Math.sign(q) * (Math.abs(q) - used)); carry += -(t.amount - closeAmt); }   // 超出的部分視為反向開倉
       if (!p) carry = 0;
@@ -577,20 +621,45 @@ function realizedStats() {
     if (exp && exp < todayStr) {
       const r = -carry;   // 到期失效：買方損失全部權利金、賣方賺到全部權利金
       option += r; expired++;
+      optEvents.push({ sym, date: exp, r, side: p > 0 ? 'long' : 'short', call: occ(sym)?.call, expired: true });
       expiries.push({ type: 'expire', id: 'exp-' + sym, date: exp, ts: 0, symbol: sym, qty: -p, desc: list.at(-1).desc, realized: r });
     } else { open++; openPos.push({ symbol: sym, qty: p, cost: carry }); }
   }
   // 股息（稅後實收）、預扣稅退回、利息
-  let div = 0, divN = 0, refund = 0, interest = 0;
+  let div = 0, divN = 0, refund = 0, interest = 0, outside = 0;
   for (const t of data.transactions) {
     if ((t.type !== 'income' && t.type !== 'expense') || t.currency !== 'USD') continue;
     const v = (t.type === 'income' ? 1 : -1) * t.amount, c = t.category || '';
     if (c.startsWith('股息')) { div += v; divN++; }
     else if (c.startsWith('退稅')) refund += v;
     else if (c.startsWith('利息')) interest += v;
+    else if (c.startsWith('帳外獲利')) outside += v;
   }
-  return { stock, sells, perSell, bySym, estimated, option, perOpt, expiries, openPos, closes, expired, open, partial, div, divN, refund, interest };
+  return { stock, sells, perSell, bySym, stockEvents, estimated, option, perOpt, optEvents, expiries, openPos, closes, expired, open, partial, div, divN, refund, interest, outside };
 }
+// 勝率：每一筆已實現損益算一次（股票＝每筆賣出，選擇權＝每筆平倉或到期）；正負 1 分錢以內算打平
+function winStats(events) {
+  const wins = events.filter(e => e.r > 0.005), losses = events.filter(e => e.r < -0.005);
+  const sumW = wins.reduce((a, e) => a + e.r, 0), sumL = losses.reduce((a, e) => a + e.r, 0);
+  return {
+    n: events.length, w: wins.length, l: losses.length, t: events.length - wins.length - losses.length,
+    rate: wins.length + losses.length ? wins.length / (wins.length + losses.length) : null,
+    avgW: wins.length ? sumW / wins.length : 0, avgL: losses.length ? sumL / losses.length : 0,
+    pf: sumL ? sumW / -sumL : null, total: sumW + sumL,
+    best: events.reduce((a, e) => (!a || e.r > a.r ? e : a), null), worst: events.reduce((a, e) => (!a || e.r < a.r ? e : a), null),
+  };
+}
+function winTable(rows) {
+  const pct = v => v == null ? '—' : (v * 100).toFixed(0) + '%';
+  return `<div class="table-wrap" style="margin:6px 0 0;padding:0"><table class="win-table"><thead><tr>
+    <th>類別</th><th>筆數</th><th>勝率</th><th>勝／敗</th><th>平均賺</th><th>平均賠</th><th>獲利因子</th><th>合計</th></tr></thead><tbody>
+    ${rows.filter(([, w]) => w.n).map(([k, w]) => `<tr><td>${k}</td><td class="num">${w.n}</td><td class="num"><b>${pct(w.rate)}</b></td>
+      <td class="num">${w.w}／${w.l}${w.t ? `<span class="muted">（平 ${w.t}）</span>` : ''}</td>
+      <td class="num up">${fmt(w.avgW, 'USD', { sign: true })}</td><td class="num down">${fmt(w.avgL, 'USD', { sign: true })}</td>
+      <td class="num">${w.pf == null ? '—' : w.pf.toFixed(2)}</td><td class="num ${cls(w.total)}">${fmt(w.total, 'USD', { sign: true })}</td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+
 function renderPnl(st) {
   const ranked = Object.entries(st.bySym).sort((a, b) => b[1] - a[1]);
   const best = ranked[0], worst = ranked.at(-1);
@@ -599,9 +668,10 @@ function renderPnl(st) {
   const sign = v => fmt(v, 'USD', { sign: true });
   const dividends = st.div + st.refund;
   const panels = {
-    all: { k: '總已實現損益', v: st.stock + st.option + dividends,
-      s: [firstDate ? `期間 ${firstDate} 起・股票 + 選擇權 + 股息` : ''],
-      parts: [['trade', '股票', st.stock], ['option', '選擇權', st.option], ['cash', '股息', dividends]] },
+    all: { k: '總已實現損益', v: st.stock + st.option + dividends + st.outside,
+      s: [firstDate ? `期間 ${firstDate} 起・股票 + 選擇權 + 股息${st.outside ? ' + 帳外獲利' : ''}` : ''],
+      parts: [['trade', '股票', st.stock], ['option', '選擇權', st.option], ['cash', '股息', dividends],
+              ...(st.outside ? [['cash', '帳外獲利', st.outside]] : [])] },
     trade: { k: '股票已實現損益', v: st.stock,
       s: [`${st.sells} 筆賣出・平均成本法`,
           best && worst && best !== worst ? `最多 ${esc(best[0])} ${fmt(best[1], 'USD', { sign: true, digits: 0 })}・最少 ${esc(worst[0])} ${fmt(worst[1], 'USD', { sign: true, digits: 0 })}` : '',
@@ -612,14 +682,22 @@ function renderPnl(st) {
           st.open ? `${st.open} 個合約未平倉，不計入` : '',
           st.partial ? `${st.partial} 筆平倉的開倉在紀錄開始前，缺成本不計入` : ''] },
     cash: { k: '股息收入（稅後）', v: dividends,
-      s: [`${st.divN} 筆股息`, st.refund ? `含預扣稅退回 ${fmt(st.refund)}` : '', st.interest ? `另有利息 ${fmt(st.interest)}（未計入）` : ''] },
+      s: [`${st.divN} 筆股息`, st.refund ? `含預扣稅退回 ${fmt(st.refund)}` : '', st.interest ? `另有利息 ${fmt(st.interest)}（未計入）` : '',
+          st.outside ? `另有帳外獲利 ${fmt(st.outside)}（計入總已實現損益）` : ''] },
   };
+  // 勝率表：股票、選擇權（分買方、賣方）
+  const sw = winStats(st.stockEvents), ow = winStats(st.optEvents);
+  const longW = winStats(st.optEvents.filter(e => e.side === 'long')), shortW = winStats(st.optEvents.filter(e => e.side === 'short'));
+  panels.trade.table = winTable([['股票（每筆賣出）', sw]]);
+  panels.option.table = winTable([['全部', ow], ['買方（buy call／put）', longW], ['賣方（sell call／put）', shortW]]);
+  panels.all.table = winTable([['股票', sw], ['選擇權', ow]]);
   const pn = panels[txFilter] || panels.all;
   $('#pnlGrid').innerHTML = `<div class="pnl-panel">
     <div class="pnl-main"><div class="k">${pn.k}</div><div class="v num ${cls(pn.v)}">${sign(pn.v)}</div>
       ${fx ? `<div class="s num">≈ ${fmt(pn.v * fx, 'TWD', { sign: true })}</div>` : ''}</div>
     ${pn.parts ? `<div class="pnl-parts">${pn.parts.map(([f, k, v]) => `<button class="pnl-part" data-f="${f}"><span class="k">${k}</span><span class="num ${cls(v)}">${sign(v)}</span></button>`).join('')}</div>` : ''}
     <div class="s pnl-notes">${pn.s.filter(Boolean).join('<br>')}</div>
+    ${pn.table ? `<div style="flex-basis:100%">${pn.table}<div class="s" style="margin-top:4px">勝率＝賺錢筆數 ÷（賺＋賠筆數）；獲利因子＝總賺 ÷ 總賠，大於 1 代表整體賺錢</div></div>` : ''}
   </div>`;
 }
 
@@ -671,7 +749,9 @@ function renderTx() {
     switch (t.type) {
       case 'buy': content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ ${fmt(t.price)}`; amount = t.fromCash ? `<span class="muted">${fmt(-t.total, 'USD')}</span>` : `<span class="muted">${fmt(t.total)}</span>`; break;
       case 'sell': { const r = st.perSell[t.id]; content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ ${fmt(t.price)}`; amount = fmt(t.total, 'USD', { sign: true }) + (r != null ? `<br><span style="font-size:12px" class="${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>` : ''); break; }
-      case 'income': content = esc(t.category || '收入'); amount = `<span class="up">${fmt(t.amount, t.currency, { sign: true })}</span>`; break;
+      case 'income': content = (t.category === '帳外獲利' ? '帳外獲利 <span class="muted" style="font-size:12px">（計入獲利，不算入金）</span>' : esc(t.category || '收入'))
+          + (/^(入金|帳外獲利)/.test(t.category || '')
+          ? ` <button class="ghost" style="font-size:11px;padding:1px 6px;color:var(--text-3)" data-reclass="${t.id}" title="${t.category === '帳外獲利' ? '改回入金：這筆是自己存進來的錢' : '如果這筆其實是在別處投資賺到、轉進來的錢，按這裡把它算成獲利'}">${t.category === '帳外獲利' ? '↺ 改回入金' : '↺ 改成帳外獲利'}</button>` : ''); amount = `<span class="up">${fmt(t.amount, t.currency, { sign: true })}</span>`; break;
       case 'expense': content = esc(t.category || '支出'); amount = `<span class="down">${fmt(-t.amount, t.currency, { sign: true })}</span>`; break;
       case 'fx': content = `${fmt(t.fromAmount, t.from)} → ${fmt(t.toAmount, t.to)}`; amount = `<span class="muted">匯率 ${(t.from === 'TWD' ? t.fromAmount / t.toAmount : t.toAmount / t.fromAmount).toFixed(3)}</span>`; break;
       case 'adjust': content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.before.shares)} → ${fmtShares(t.after.shares)} 股，成本 ${fmt(t.before.cost)} → ${fmt(t.after.cost)}`; break;
@@ -704,9 +784,7 @@ function renderChart() {
   const box = $('#chartBox');
   const cur = data.settings.displayCurrency;
   $('#chartCurLabel').textContent = '(' + cur + ')';
-  let pts = data.history.map(h => ({ date: h.date, v: cur === 'TWD' ? h.twd : h.usd }));
-  const cutoff = rangeCutoff(chartRange);
-  if (cutoff) pts = pts.filter(p => p.date >= cutoff);
+  const pts = inRange(data.history, chartRange).map(h => ({ date: h.date, v: cur === 'TWD' ? h.twd : h.usd }));
   if (pts.length < 2) {
     box.innerHTML = `<div class="empty" style="padding-top:80px">資料累積兩天以上就會出現走勢圖（目前 ${pts.length} 筆）</div>`;
     return;
@@ -754,6 +832,68 @@ function renderChart() {
   hit.addEventListener('pointerleave', () => { cx.setAttribute('visibility', 'hidden'); cd.setAttribute('visibility', 'hidden'); tip.hidden = true; });
 }
 
+// ============ 槓桿率走勢 ============
+function renderLev() {
+  const box = $('#levBox'), stats = $('#levStats');
+  const pts = inRange(data.history, levRange).filter(h => h.exp != null && h.usd > 0)
+    .map(h => ({ date: h.date, v: h.exp / h.usd, exp: h.exp, usd: h.usd }));
+  if (pts.length < 2) {
+    stats.innerHTML = '';
+    box.innerHTML = `<div class="empty" style="padding-top:80px">資料累積兩天以上就會出現槓桿率走勢</div>`;
+    return;
+  }
+  const cur = pts.at(-1), peak = pts.reduce((a, b) => (b.v > a.v ? b : a)), low = pts.reduce((a, b) => (b.v < a.v ? b : a));
+  const avg = pts.reduce((a, p) => a + p.v, 0) / pts.length;
+  stats.innerHTML = [['目前', cur.v], ['期間平均', avg], [`最高（${peak.date}）`, peak.v], [`最低（${low.date}）`, low.v]]
+    .map(([k, v]) => `<span class="legend-item">${k} <b class="num">${v.toFixed(2)}x</b></span>`).join('');
+
+  const W = box.clientWidth, H = box.clientHeight, padL = 52, padR = 12, padT = 10, padB = 24;
+  let min = Math.min(1, ...pts.map(p => p.v)), max = Math.max(1, ...pts.map(p => p.v));
+  const pad = (max - min) * 0.08 || 0.1; min = Math.max(0, min - pad); max += pad;
+  const raw = (max - min) / 4, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map(k => k * mag).find(v => v >= raw);
+  const ticks = [];
+  for (let t = Math.ceil(min / step) * step; t <= max + 1e-9; t += step) ticks.push(t);
+  const t0 = +new Date(pts[0].date), t1 = +new Date(cur.date);
+  const x = d => padL + (+new Date(d) - t0) / (t1 - t0) * (W - padL - padR);
+  const y = v => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + x(p.date).toFixed(1) + ',' + y(p.v).toFixed(1)).join('');
+  const area = line + `L${x(cur.date).toFixed(1)},${H - padB}L${padL},${H - padB}Z`;
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="槓桿率走勢">
+    <defs><linearGradient id="lg" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="var(--accent)" stop-opacity=".18"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/>
+    </linearGradient></defs>
+    ${ticks.map(t => `<line x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" stroke-dasharray="2 4"/>
+      <text class="axis-text" x="${padL - 8}" y="${y(t) + 4}" text-anchor="end">${+t.toFixed(2)}x</text>`).join('')}
+    <line x1="${padL}" x2="${W - padR}" y1="${y(1)}" y2="${y(1)}" stroke="var(--text-3)" stroke-width="1"/>
+    <text class="axis-text" x="${padL + 6}" y="${y(1) - 5}">1x 無槓桿</text>
+    <text class="axis-text" x="${padL}" y="${H - 4}">${pts[0].date}</text>
+    <text class="axis-text" x="${W - padR}" y="${H - 4}" text-anchor="end">${cur.date}</text>
+    <path d="${area}" fill="url(#lg)"/>
+    <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <line id="lcx" y1="${padT}" y2="${H - padB}" stroke="var(--text-3)" stroke-width="1" visibility="hidden"/>
+    <circle id="lcd" r="4.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>
+    <rect x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent" id="lhit"/>
+  </svg><div class="chart-tip" id="ltip" hidden></div>`;
+  const hit = box.querySelector('#lhit'), cx = box.querySelector('#lcx'), cd = box.querySelector('#lcd'), tip = box.querySelector('#ltip');
+  hit.addEventListener('pointermove', e => {
+    const mx = e.clientX - box.getBoundingClientRect().left;
+    let best = pts[0];
+    for (const p of pts) if (Math.abs(x(p.date) - mx) < Math.abs(x(best.date) - mx)) best = p;
+    const px = x(best.date), py = y(best.v);
+    cx.setAttribute('x1', px); cx.setAttribute('x2', px); cx.setAttribute('visibility', 'visible');
+    cd.setAttribute('cx', px); cd.setAttribute('cy', py); cd.setAttribute('visibility', 'visible');
+    tip.hidden = false;
+    tip.style.top = padT + 'px'; tip.style.left = px + 'px';
+    tip.style.transform = px > W / 2 ? 'translate(calc(-100% - 10px), 0)' : 'translate(10px, 0)';
+    tip.innerHTML = `<div style="margin-bottom:4px">${best.date}</div>
+      <div class="row"><span>槓桿率</span><b>${best.v.toFixed(2)}x</b></div>
+      <div class="row"><span>曝險</span><b>${fmt(best.exp, 'USD', { digits: 0 })}</b></div>
+      <div class="row"><span>淨資產</span><b>${fmt(best.usd, 'USD', { digits: 0 })}</b></div>`;
+  });
+  hit.addEventListener('pointerleave', () => { cx.setAttribute('visibility', 'hidden'); cd.setAttribute('visibility', 'hidden'); tip.hidden = true; });
+}
+
 // ============ 報酬率比較 ============
 const BENCH = [
   { key: 'me', name: '我的組合', short: '我的組合', color: 'var(--s1)' },
@@ -781,7 +921,7 @@ function externalFlows() {
     if (t.initial) continue;
     let amt;
     if (t.type === 'income' || t.type === 'expense') {
-      if (/股息|利息|退稅/.test(t.category || '')) continue;
+      if (/股息|利息|退稅|帳外獲利/.test(t.category || '')) continue;
       amt = t.type === 'income' ? t.amount : -t.amount;
     } else continue;
     out.push({ date: t.date, usd: t.currency === 'USD' ? amt : amt / fxOn(t.date) });
@@ -952,11 +1092,19 @@ const shortDesc = d => d.replace(/\s+(UNSOLICITED|S\/D:|EXEC TIME).*$/, '').repl
 
 function buildImport(trades, positions) {
   const sync = data.settings.syncDate || '';
-  const existing = new Set(data.transactions.map(t => t.key).filter(Boolean));
-  const plan = { txs: [], adjusts: [], dup: 0, manual: [], skipped: [], ignored: 0, live: 0, logOnly: 0, opt: 0, deposits: 0, cash: 0, sync };
+  const plan = { txs: [], adjusts: [], dup: 0, manual: [], replaced: [], skipped: [], ignored: 0, live: 0, logOnly: 0, opt: 0, deposits: 0, cash: 0, sync };
   // 同一天可能有完全相同的兩筆交易，用出現次數區分
   const seen = {};
   trades.forEach((r, i) => { const b = [r.date, r.kind, r.sym, r.qty, r.price, r.amt].join('|'); seen[b] = (seen[b] || 0) + 1; r.key = b + '#' + seen[b]; r.i = i; });
+  // 券商會改寫最近幾天的紀錄（改交易類別、改日期、把多筆成交合併成一筆），所以在檔案涵蓋的日期內以新檔案為準：
+  // 舊紀錄在新檔案找不到一模一樣的，就換成新檔案的版本。最早那天不算，因為匯出有筆數上限，那天可能只匯出一部分
+  if (trades.length) {
+    const dates = trades.map(r => r.date).sort(), minD = dates[0], maxD = dates.at(-1);
+    const newKeys = new Set(trades.map(r => r.key));
+    plan.replaced = data.transactions.filter(t => t.imported && t.key && t.date > minD && t.date <= maxD && !newKeys.has(t.key));
+    plan.window = [minD, maxD];
+  }
+  const existing = new Set(data.transactions.filter(t => !plan.replaced.includes(t)).map(t => t.key).filter(Boolean));
   const fresh = trades.filter(r => { if (existing.has(r.key)) { plan.dup++; return false; } return true; });
 
   // 先找出手動記過的同一筆交易（同代號、同方向、同股數、日期差 3 天內）：改用券商的精確數字取代
@@ -970,9 +1118,9 @@ function buildImport(trades, positions) {
     cands.sort((a, b) => Math.abs(new Date(a.date) - new Date(r.date)) - Math.abs(new Date(b.date) - new Date(r.date)));
     if (cands[0]) { matchOf.set(r.key, cands[0]); plan.manual.push(cands[0]); }
   }
-  // 模擬持股：先把被取代的手動紀錄還原
+  // 模擬持股：先把被取代的紀錄（手動輸入的、券商改寫過的）還原
   const sim = JSON.parse(JSON.stringify(data.holdings));
-  for (const m of plan.manual) {
+  for (const m of [...plan.manual, ...plan.replaced]) {
     const e = m.effects?.holding;
     if (!e) continue;
     const h = sim[e.symbol] ??= { shares: 0, cost: 0 };
@@ -1013,11 +1161,11 @@ function buildImport(trades, positions) {
           }
         }
       }
-    } else if (isOpt && r.amt) {
+    } else if (isOpt && (r.amt || /EXPIR/.test(r.desc))) {
       // 選擇權不追蹤部位，但權利金進出要算進現金（也用於重建歷史）
       tx = { type: 'option', symbol: r.sym, qty: r.qty, desc: shortDesc(r.desc), amount: r.amt, ...base,
-             action: /CLOSING/.test(r.desc) || /平倉/.test(r.kind) ? 'close' : /OPEN/.test(r.desc) || /開倉/.test(r.kind) ? 'open' : null };
-      if (live) eff = { cash: { USD: r.amt } };
+             action: /CLOSING|EXPIR/.test(r.desc) || /平倉/.test(r.kind) ? 'close' : /OPEN/.test(r.desc) || /開倉/.test(r.kind) ? 'open' : null };
+      if (live && r.amt) eff = { cash: { USD: r.amt } };
       plan.opt++;
     } else if (/存款|入金|匯入/.test(r.kind) && r.amt) {
       tx = { type: r.amt > 0 ? 'income' : 'expense', amount: Math.abs(r.amt), currency: 'USD', category: r.amt > 0 ? '入金' : '出金', ...base };
@@ -1047,7 +1195,7 @@ function buildImport(trades, positions) {
     live ? plan.live++ : plan.logOnly++;
     plan.cash += eff.cash?.USD || 0;
   }
-  for (const m of plan.manual) for (const [c, v] of Object.entries(m.effects?.cash || {})) if (c === 'USD') plan.cash -= v;
+  for (const m of [...plan.manual, ...plan.replaced]) for (const [c, v] of Object.entries(m.effects?.cash || {})) if (c === 'USD') plan.cash -= v;
   // 持倉檔 = 最新狀態：把（套用交易後的）持股校正成檔案上的股數與成本
   if (positions) {
     const target = {};
@@ -1068,9 +1216,9 @@ function buildImport(trades, positions) {
 }
 function applyImport(plan) {
   const importId = uid(), ts = Date.now();
-  // 被券商紀錄取代的手動紀錄：先還原它的影響再移除（復原時會放回來）
+  // 被取代的紀錄（手動輸入的、券商改寫過的）：先還原它的影響再移除（復原時會放回來）
   const removed = [];
-  for (const m of plan.manual) {
+  for (const m of [...plan.manual, ...plan.replaced]) {
     applyEffects(m.effects || {}, -1);
     data.transactions = data.transactions.filter(t => t !== m);
     removed.push(m);
@@ -1150,7 +1298,9 @@ async function rebuildHistory() {
     const start = past.map(e => e.date).sort()[0];
     const stockSyms = [...new Set([...ev.filter(e => e.sym).map(e => e.sym), ...Object.keys(data.holdings)])];
 
-    const r = await fetch(`/api/history?symbols=${encodeURIComponent(['SPY', 'TWD=X', ...stockSyms].join(','))}&from=${start}`);
+    const optRoots = [...new Set(ev.filter(e => e.opt).map(e => occ(e.opt)?.root).filter(Boolean))];   // 算選擇權 delta 用
+    const fetchSyms = [...new Set(['SPY', 'TWD=X', '^IRX', ...stockSyms, ...optRoots])];
+    const r = await fetch(`/api/history?symbols=${encodeURIComponent(fetchSyms.join(','))}&from=${start}`);
     const px = await r.json();
     const days = Object.keys(px.SPY && !px.SPY.error ? px.SPY : {}).filter(d => d >= start && d < todayStr).sort();
     if (!days.length) throw new Error('抓不到歷史股價');
@@ -1169,8 +1319,12 @@ async function rebuildHistory() {
       }
       snap[d] = { pos: { ...pos }, cash: { ...cash } };
     }
-    const init = { ...pos };   // 紀錄開始前的持股
-    while (k < desc.length) { const e = desc[k++]; if (e.sym) init[e.sym] = round((init[e.sym] || 0) - e.qty); }
+    const init = { ...pos }, cash0 = { ...cash };   // 紀錄開始前的持股與現金
+    while (k < desc.length) {
+      const e = desc[k++];
+      if (e.sym) init[e.sym] = round((init[e.sym] || 0) - e.qty);
+      for (const [c, v] of Object.entries(e.cash)) cash0[c] = round((cash0[c] || 0) - v, 4);
+    }
 
     // 2) 選擇權：以成本計價（持有期間不跳動），到期或平倉時才實現損益
     const optEv = {};
@@ -1187,10 +1341,37 @@ async function rebuildHistory() {
         carry0 += e.cash.USD * used / Math.abs(e.qty || 1);
         rem += Math.sign(e.qty) * used;
       }
-      optState[s] = { list, i: 0, pos: q0, carry: q0 ? carry0 : 0, exp };
+      optState[s] = { sym: s, list, i: 0, pos: q0, carry: q0 ? carry0 : 0, exp };
     }
+    // 歷史上沒有每天的選擇權報價可反推隱含波動率，改用標的過去 30 個交易日的實際波動率估算 delta
+    const volCache = {};
+    const histVol = (root, d) => {
+      const key = root + d;
+      if (key in volCache) return volCache[key];
+      const ser = px[root];
+      if (!ser || ser.error) return (volCache[key] = null);
+      const ds = Object.keys(ser).filter(x => x <= d).sort().slice(-31);
+      if (ds.length < 10) return (volCache[key] = null);
+      const rets = ds.slice(1).map((x, i) => Math.log(ser[x] / ser[ds[i]]));
+      const m = rets.reduce((a, b) => a + b, 0) / rets.length;
+      const vr = rets.reduce((a, b) => a + (b - m) ** 2, 0) / (rets.length - 1);
+      return (volCache[key] = Math.sqrt(vr * 252));
+    };
+    const optExposure = (sym, qty, d) => {
+      if (qty <= 0) return 0;   // 賣方部位不計入曝險
+      const o = occ(sym);
+      if (!o) return 0;
+      const S = priceOf(o.root, d), vol = histVol(o.root, d);
+      // 標的價跟履約價差太多（多半是分割造成價格基準不同）就不估，避免算出離譜的數字
+      if (!(S > 0) || !vol || S / o.strike > 3 || S / o.strike < 1 / 3) return 0;
+      const T = Math.max((new Date(o.exp) - new Date(d)) / (365 * 864e5), 1 / 365);
+      const rate = (px['^IRX'] && !px['^IRX'].error ? lastOnOrBefore(px['^IRX'], d) : null) ?? 4;
+      return qty * 100 * bsModel(S, o.strike, T, rate / 100, vol, o.call).delta * S * levOf(o.root);
+    };
+    let optExpToday = 0;
     const optValue = d => {
       let v = 0;
+      optExpToday = 0;
       for (const o of Object.values(optState)) {
         while (o.i < o.list.length && o.list[o.i].date <= d) {
           const e = o.list[o.i++];
@@ -1200,7 +1381,7 @@ async function rebuildHistory() {
           if (!o.pos) o.carry = 0;
         }
         if (o.exp && d > o.exp) { o.pos = 0; o.carry = 0; }
-        if (o.pos) v += o.carry;
+        if (o.pos) { v += o.carry; optExpToday += optExposure(o.sym, o.pos, d); }
       }
       return v;
     };
@@ -1224,12 +1405,27 @@ async function rebuildHistory() {
       if (!tp) return quotes[s]?.price ?? 0;
       return lastOnOrBefore(tp, d) ?? tp[Object.keys(tp).sort()[0]];
     };
-    const baseDate = new Date(new Date(start).getTime() - 864e5).toISOString().slice(0, 10);
+    // 紀錄開始前最後一個交易日（例如 12/31）：期初持股以這天收盤價當成本，也是走勢的起點
+    const prevDay = Object.keys(px.SPY).filter(d => d < start).sort().at(-1);
+    const baseDate = prevDay || new Date(new Date(start).getTime() - 864e5).toISOString().slice(0, 10);
     data.settings.base = { date: baseDate, prices: Object.fromEntries(
       Object.entries(init).filter(([, q]) => q > 1e-9).map(([sym]) => [sym, round(priceOf(sym, baseDate), 4)])) };
     const fxSeries = px['TWD=X'] && !px['TWD=X'].error ? px['TWD=X'] : {};
 
     const out = [];
+    // 起點：紀錄開始前最後一個交易日的收盤（例如 12/31），「今年」報酬率才會從 1/1 算起
+    if (prevDay) {
+      const rate0 = lastOnOrBefore(fxSeries, prevDay) || fx;
+      let stock0 = 0, exp0 = 0;
+      for (const [sym, q] of Object.entries(init)) {
+        if (Math.abs(q) < 1e-9) continue;
+        const v = q * priceOf(sym, prevDay);
+        stock0 += v; exp0 += v * levOf(sym);
+      }
+      const opt0 = Object.values(optState).reduce((a, o) => a + (o.pos ? o.carry : 0), 0);
+      const usd0 = stock0 + opt0 + (cash0.USD || 0);
+      out.push({ date: prevDay, usd: round(usd0, 2), twd: Math.round(usd0 * rate0), fx: round(rate0, 4), exp: round(exp0, 2), backfilled: true, base: true });
+    }
     for (const d of days) {
       const s = snap[d], rate = lastOnOrBefore(fxSeries, d) || fx;
       let stock = 0, exp = 0;
@@ -1239,10 +1435,12 @@ async function rebuildHistory() {
         stock += v; exp += v * levOf(sym);
       }
       const usd = stock + optValue(d) + s.cash.USD;
+      exp += optExpToday;
       out.push({ date: d, usd: round(usd, 2), twd: Math.round(usd * rate), fx: round(rate, 4), exp: round(exp, 2), backfilled: true });
     }
     data.history = [...out, ...data.history.filter(h => h.date >= todayStr)];
     const missing = stockSyms.filter(s => !px[s] || px[s].error);
+    data.settings.levVersion = 3;   // 歷史曝險：只含買方選擇權的 delta
     save(); render(); loadBench();
     console.info('split-adjusted', scale, 'missing', missing);
     toast(`已重新計算 ${out.length} 天的走勢` + (missing.length ? `（${missing.join('、')} 查不到歷史價，以成交價估算）` : ''));
@@ -1270,7 +1468,7 @@ function applyEffects(eff, dir = 1) {
 const modal = $('#modal'), form = $('#modalForm');
 const FORMS = {
   brokerImport: (plan) => {
-    const nothing = !plan.txs.length && !plan.adjusts.length && !plan.manual.length;
+    const nothing = !plan.txs.length && !plan.adjusts.length && !plan.manual.length && !plan.replaced.length;
     const li = [];
     if (plan.txs.length) li.push(`新增 <b>${plan.txs.length}</b> 筆紀錄：${plan.live} 筆會更新持股與現金` +
       (plan.logOnly ? `，${plan.logOnly} 筆只記錄（在 ${plan.sync} 持倉同步之前，持股已包含）` : ''));
@@ -1278,6 +1476,8 @@ const FORMS = {
     if (plan.opt) li.push(`其中選擇權 ${plan.opt} 筆：未平倉的合約會以 Yahoo 報價計入市值`);
     if (plan.cash) li.push(`美元現金 ${fmt(plan.cash, 'USD', { sign: true })}（${fmt(data.cash.USD)} → ${fmt(data.cash.USD + plan.cash)}）`);
     if (plan.dup) li.push(`已匯入過的 ${plan.dup} 筆：略過`);
+    if (plan.replaced.length) li.push(`券商改寫過的舊紀錄 ${plan.replaced.length} 筆（改了日期、類別，或把多筆成交合併），以新檔案為準<br><span class="muted">${
+      plan.replaced.slice(0, 6).map(t => `${t.date} ${t.type === 'option' ? optName(t.symbol) : t.symbol} ${TX_LABEL[t.type]} ${t.type === 'option' ? fmtShares(Math.abs(t.qty)) + ' 口' : fmtShares(t.shares) + ' 股'}`).join('<br>')}${plan.replaced.length > 6 ? '<br>…' : ''}</span>`);
     if (plan.ignored) li.push(`<span class="muted">另有 ${plan.ignored} 筆帳戶間轉帳（進出互相抵銷），不需處理</span>`);
     if (plan.manual.length) li.push(`你手動記錄過的 ${plan.manual.length} 筆：視為同一筆，改用券商的精確數字<br><span class="muted">${plan.manual.map(m => `${m.date} ${m.symbol} ${TX_LABEL[m.type]} ${fmtShares(m.shares)} 股`).join('<br>')}</span>`);
     if (plan.skipped.length) li.push(`無法處理 ${plan.skipped.length} 筆：<br><span class="muted">${plan.skipped.slice(0, 5).map(esc).join('<br>')}${plan.skipped.length > 5 ? '<br>…' : ''}</span>`);
@@ -1321,8 +1521,17 @@ document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.cur) { data.settings.displayCurrency = b.dataset.cur; save(); render(); }
   else if (b.dataset.range) { chartRange = b.dataset.range; renderChart(); $$('#rangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
+  else if (b.dataset.lrange) { levRange = b.dataset.lrange; renderLev(); $$('#levRangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
   else if (b.dataset.crange) { cmpRange = b.dataset.crange; renderCompare(); $$('#cmpRangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
   else if (b.dataset.f) { txFilter = b.dataset.f; txLimit = 30; render(); }
+  else if (b.dataset.reclass) {
+    // 只改分類（影響報酬率怎麼算），不動金額；重新上傳券商檔案也會保留
+    const t = data.transactions.find(x => x.id === b.dataset.reclass);
+    if (!t) return;
+    t.category = t.category === '帳外獲利' ? '入金' : '帳外獲利';
+    save(); render();
+    toast(t.category === '帳外獲利' ? `${t.date} 這筆已改為帳外獲利，報酬率已重新計算` : `${t.date} 這筆已改回入金`);
+  }
 });
 $('#refreshBtn').onclick = refreshQuotes;
 $('#rebuildBtn').onclick = rebuildHistory;
@@ -1347,12 +1556,16 @@ $('#undoImportBtn').onclick = e => {
   b.dataset.confirm = '1'; b.textContent = '確定復原？再按一次';
   setTimeout(() => { if (b.dataset.confirm) reset(); }, 3000);
 };
-window.addEventListener('resize', () => { clearTimeout(window._rz); window._rz = setTimeout(() => { renderChart(); renderCompare(); }, 150); });
+window.addEventListener('resize', () => { clearTimeout(window._rz); window._rz = setTimeout(() => { renderChart(); renderCompare(); renderLev(); }, 150); });
 // 每 60 秒自動更新；分頁回到前景時也更新
 setInterval(() => { if (!document.hidden) refreshQuotes(); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && (!lastUpdate || Date.now() - lastUpdate > 30000)) refreshQuotes(); });
 
-(async () => { await load(); render(); await refreshQuotes(); loadBench(); })();
+(async () => {
+  await load(); render(); await refreshQuotes(); loadBench();
+  // 槓桿率算法更新過（目前：只計入買方選擇權），舊的歷史資料自動重算一次
+  if (data.settings.levVersion !== 3 && data.transactions.some(t => t.imported)) rebuildHistory();
+})();
 setInterval(loadBench, 10 * 60000);
 </script>
 </body>
