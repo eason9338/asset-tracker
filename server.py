@@ -23,6 +23,14 @@ DATA_FILE = os.path.join(BASE, "data.json")
 BACKUP_DIR = os.path.join(BASE, "backups")
 UA = "Mozilla/5.0"
 
+STATIC_FILES = {
+    "analytics.js": "application/javascript; charset=utf-8",
+    "analytics.css": "text/css; charset=utf-8",
+    "manifest.webmanifest": "application/manifest+json",
+    "icon-180.png": "image/png",
+    "icon-512.png": "image/png",
+}
+
 DEFAULT_DATA = {
     "cash": {"USD": 0, "TWD": 0},
     "holdings": {},
@@ -424,6 +432,11 @@ class Handler(BaseHTTPRequestHandler):
         if u.path in ("/", "/index.html"):
             with open(os.path.join(BASE, "index.html"), "rb") as f:
                 return self._send(200, f.read(), "text/html; charset=utf-8")
+        # 網頁用到的其他檔案（只開放清單內的，不會把 data.json 之類的檔案送出去）
+        static = STATIC_FILES.get(u.path.lstrip("/"))
+        if static and os.path.exists(os.path.join(BASE, u.path.lstrip("/"))):
+            with open(os.path.join(BASE, u.path.lstrip("/")), "rb") as f:
+                return self._send(200, f.read(), static)
         if u.path == "/api/data":
             return self._send(200, load_data())
         if u.path == "/api/quotes":

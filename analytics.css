@@ -1,0 +1,98 @@
+/* analytics.js 的版面：分頁、警示、各分析卡片。顏色全部沿用 index.html 定義的變數，深色模式自動跟著變 */
+
+/* ---------- 分頁 ---------- */
+.tab-nav {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  display: flex; gap: 4px; margin: 16px 0; padding: 4px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.tab-nav::-webkit-scrollbar { display: none; }
+.tab-nav button { flex: 1 0 auto; border: 0; background: transparent; padding: 8px 14px; border-radius: 8px; font-size: 14px; color: var(--text-2); }
+.tab-nav button:hover { background: var(--surface-2); color: var(--text); }
+.tab-nav button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+section[data-panel] > .card:first-child, section[data-panel] > .grid:first-child { margin-top: 0; }
+
+/* ---------- 警示橫幅 ---------- */
+#alertBar { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.alert-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px; font-size: 13px;
+  background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--warn, #c98500);
+}
+.alert-item.danger { border-left-color: var(--up); }
+.alert-item .msg { flex: 1; }
+.alert-item .tag { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); white-space: nowrap; }
+
+/* ---------- 共用 ---------- */
+.x-empty { color: var(--text-3); text-align: center; padding: 28px 0; font-size: 13px; }
+.x-note { font-size: 12px; color: var(--text-3); margin-top: 8px; line-height: 1.6; }
+.x-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.x-tile { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
+.x-tile .k { font-size: 12px; color: var(--text-2); }
+.x-tile .v { font-size: 18px; font-weight: 600; margin-top: 2px; }
+.x-tile .s { font-size: 11px; color: var(--text-3); margin-top: 2px; line-height: 1.5; }
+.x-table { width: 100%; font-size: 13px; }
+.x-table th, .x-table td { padding: 6px 8px; }
+.x-table td.l, .x-table th.l { text-align: left; }
+.x-sub { font-size: 11px; color: var(--text-3); display: block; }
+.x-chip { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--surface-2); color: var(--text-2); margin: 2px 4px 2px 0; white-space: nowrap; }
+.x-chip.off { text-decoration: line-through; opacity: .7; }
+.x-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); }
+.x-badge.danger { background: color-mix(in srgb, var(--up) 15%, transparent); color: var(--up); }
+.x-badge.good { background: color-mix(in srgb, var(--down) 15%, transparent); color: var(--down); }
+
+/* ---------- 橫條圖（曝險、今日貢獻） ---------- */
+.hbar-row { display: grid; grid-template-columns: minmax(90px, 160px) 1fr minmax(80px, auto); gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.hbar-row:last-child { border-bottom: 0; }
+.hbar-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar-track { position: relative; height: 14px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.hbar-track i { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: var(--accent); }
+.hbar-track i.pos { background: var(--up); }
+.hbar-track i.neg { background: var(--down); }
+.hbar-track .ref { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text-3); }
+.hbar-val { font-size: 13px; text-align: right; white-space: nowrap; }
+.hbar-items { grid-column: 1 / -1; margin-top: -2px; }
+@media (max-width: 600px) {
+  .hbar-row { grid-template-columns: 110px 1fr; }
+  .hbar-name { white-space: normal; overflow: visible; }
+  .hbar-val { grid-column: 1 / -1; text-align: left; }
+}
+
+/* ---------- 每月報酬熱力圖 ---------- */
+.heat { border-collapse: separate; border-spacing: 3px; width: 100%; font-size: 12px; }
+.heat th { font-weight: 500; color: var(--text-3); padding: 2px; text-align: center; }
+.heat td { text-align: center; padding: 7px 2px; border-radius: 6px; border: 0; white-space: nowrap; }
+.heat td.lbl { text-align: left; color: var(--text-2); padding-left: 0; }
+.heat tr.bm td:not(.lbl) { color: var(--text-3); font-size: 11px; padding: 3px 2px; }
+.heat td.na { color: var(--text-3); }
+
+/* ---------- 壓力測試 ---------- */
+.stress-controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 12px; }
+.stress-controls input[type=range] { flex: 1 1 220px; accent-color: var(--accent); }
+.stress-move { font-size: 22px; font-weight: 650; min-width: 80px; }
+.stress-presets { display: flex; flex-wrap: wrap; gap: 4px; }
+.stress-presets button { padding: 4px 9px; font-size: 12px; }
+.stress-presets button.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.stress-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 16px; margin: 4px 0 12px; }
+.stress-groups label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); }
+.stress-groups input[type=range] { flex: 1; accent-color: var(--accent); }
+details.x-details > summary { cursor: pointer; font-size: 13px; color: var(--text-2); margin: 4px 0 8px; }
+
+/* ---------- 交易分析 ---------- */
+.ana-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+
+/* ---------- 警示設定 ---------- */
+.alert-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 16px; }
+.alert-form label { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--text-2); background: var(--surface-2); padding: 8px 10px; border-radius: 8px; }
+.alert-form input[type=number] { width: 80px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); text-align: right; }
+
+/* ---------- 隱私模式：模糊金額 ---------- */
+:root.privacy .num, :root.privacy .hero-value, :root.privacy .v, :root.privacy .hbar-val,
+:root.privacy .chart-tip, :root.privacy .axis-text, :root.privacy .end-label, :root.privacy .legend b,
+:root.privacy .x-tile .v, :root.privacy .stress-move + .num, :root.privacy .alert-item .msg b {
+  filter: blur(7px); transition: filter .15s;
+}
+:root.privacy #privacyBtn { color: var(--accent); }
+
+/* 手機：彈性排版裡的表格要能在自己的範圍內橫向捲動，不要把整頁撐寬 */
+.pnl-panel > div, .pnl-main, .pnl-notes { min-width: 0; }
