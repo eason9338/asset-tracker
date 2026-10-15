@@ -341,6 +341,28 @@ def fetch_option_quotes(symbols):
         return out
 
 
+_event_cache = {}  # symbol -> (timestamp, events)
+
+
+def fetch_events(symbols):
+    """財報日、配息日（Yahoo v7）；一小時更新一次"""
+    now = time.time()
+    out = {s: _event_cache[s][1] for s in symbols if s in _event_cache and now - _event_cache[s][0] < 3600}
+    todo = [s for s in symbols if s not in out]
+    if todo:
+        try:
+            for q in _v7_quote(todo):
+                v = {"earnings": q.get("earningsTimestamp") or q.get("earningsTimestampStart"),
+                     "earningsEstimate": q.get("isEarningsDateEstimate"),
+                     "exDividend": q.get("exDividendDate"), "dividend": q.get("dividendDate"),
+                     "name": q.get("shortName") or q["symbol"]}
+                out[q["symbol"].upper()] = v
+                _event_cache[q["symbol"].upper()] = (now, v)
+        except Exception as e:  # noqa: BLE001
+            return {**out, "_error": str(e)}
+    return out
+
+
 _hist_cache = {}  # (symbol, from) -> (timestamp, {date: close})
 
 
@@ -447,6 +469,10 @@ class Handler(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(u.query).get("symbols", [""])[0]
             symbols = [s.strip().upper() for s in q.split(",") if s.strip()][:50]
             return self._send(200, fetch_option_quotes(symbols) if symbols else {})
+        if u.path == "/api/events":
+            q = urllib.parse.parse_qs(u.query).get("symbols", [""])[0]
+            symbols = [s.strip().upper() for s in q.split(",") if s.strip()][:40]
+            return self._send(200, fetch_events(symbols) if symbols else {})
         if u.path == "/api/history":
             qs = urllib.parse.parse_qs(u.query)
             symbols = [x.strip().upper() for x in qs.get("symbols", [""])[0].split(",") if x.strip()][:120]

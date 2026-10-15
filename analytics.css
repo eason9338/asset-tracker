@@ -96,3 +96,47 @@ details.x-details > summary { cursor: pointer; font-size: 13px; color: var(--tex
 
 /* 手機：彈性排版裡的表格要能在自己的範圍內橫向捲動，不要把整頁撐寬 */
 .pnl-panel > div, .pnl-main, .pnl-notes { min-width: 0; }
+
+/* ---------- 平靜模式：首頁不直接顯示餘額和漲跌 ---------- */
+#peekBtn, #calmMsg { display: none; }
+:root.calm #peekBtn { display: inline-block; }
+:root.calm #calmBtn { color: var(--accent); }
+:root.calm #heroDay, :root.calm #contribCard { display: none; }
+:root:not(.calm) #heroCalm { display: none; }
+:root.calm:not(.peek) #calmMsg { display: inline; color: var(--text-3); font-size: 13px; }
+:root.calm:not(.peek) #heroCalm { display: none; }
+/* 金額先模糊、紅綠改中性色；只影響最上面的總資產和總覽分頁 */
+:root.calm:not(.peek) .hero-value,
+:root.calm:not(.peek) section[data-panel="overview"] .num,
+:root.calm:not(.peek) section[data-panel="overview"] .v,
+:root.calm:not(.peek) section[data-panel="overview"] .axis-text,
+:root.calm:not(.peek) section[data-panel="overview"] .chart-tip,
+:root.calm:not(.peek) .alert-item .msg b { filter: blur(9px); user-select: none; }
+:root.calm:not(.peek) section[data-panel="overview"], :root.calm:not(.peek) .hero { --up: var(--text-2); --down: var(--text-2); }
+/* 近期事件的「還有幾天」不是金額，不用模糊 */
+:root.calm:not(.peek) section[data-panel="overview"] .ev-days { filter: none; }
+
+/* ---------- 近期事件 ---------- */
+.ev-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.ev-row:last-of-type { border-bottom: 0; }
+.ev-main { flex: 1; min-width: 0; font-size: 13px; }
+.ev-days { font-size: 13px; color: var(--text-2); white-space: nowrap; }
+
+/* ---------- 下單前檢查 ---------- */
+.ck-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-bottom: 10px; }
+.ck-row[hidden] { display: none !important; }
+.ck-field { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
+.ck-field input { width: 110px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.ck-list { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 8px; font-size: 13px; color: var(--text-2); }
+.ck-list label { display: flex; gap: 8px; align-items: flex-start; }
+.ck-ok { padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 600; }
+
+/* ---------- 交易日記 ---------- */
+#jText { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); font: inherit; color: inherit; resize: vertical; }
+.j-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.j-item:last-child { border-bottom: 0; }
+.j-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+.j-text { font-size: 14px; margin-top: 4px; line-height: 1.6; white-space: normal; }
+
+/* ---------- 冷靜提醒 ---------- */
+.alert-item.calm { border-left-color: var(--accent); }

@@ -1,6 +1,6 @@
-// 分析功能：分頁、警示、隱私模式、今日損益貢獻、風險報酬指標、回撤、每月報酬、依標的曝險、壓力測試、
-// 選擇權部位風險、交易分析、每月已實現損益、交易成本、台灣海外所得整理。
-// 只讀取 index.html 的資料與函式（data、calc、realizedStats…），除了警示設定以外不寫入資料。
+// 分析功能：分頁、警示、隱私模式、平靜模式、今年的進度、近期事件、今日損益貢獻、風險報酬指標、回撤、每月報酬、
+// 依標的曝險、壓力測試、下單前檢查、選擇權部位風險、交易日記、交易分析、每月已實現損益、交易成本。
+// 只讀取 index.html 的資料與函式（data、calc、realizedStats…），只會寫入警示設定和交易日記。
 // 全部包在函式裡，避免跟 index.html 的全域變數撞名；對外只公開 window.renderExtras。
 (() => {
 'use strict';
@@ -124,7 +124,7 @@ function lineChart(box, pts, { fmtY, fmtTip, color = 'var(--accent)', zero = fal
 }
 
 // ============ 分頁 ============
-const TABS = ['overview', 'perf', 'risk', 'trade', 'tax'];
+const TABS = ['overview', 'perf', 'risk', 'trade'];
 let curTab = (location.hash || '').slice(1);
 if (!TABS.includes(curTab)) curTab = store.get('tab', 'overview');
 if (!TABS.includes(curTab)) curTab = 'overview';
@@ -147,8 +147,110 @@ function applyPrivacy() {
 }
 applyPrivacy();
 
+// ============ 平靜模式：不顯示今天的漲跌，改看今年的累積成績 ============
+function applyCalm() {
+  const on = store.get('calm', '1') === '1';
+  document.documentElement.classList.toggle('calm', on);
+  const b = el('calmBtn');
+  if (b) { b.textContent = on ? '◉ 平靜中' : '◎ 平靜'; b.title = on ? '平靜模式開啟中：按一下會顯示今天的漲跌' : '平靜模式：不顯示今天的漲跌，改看今年的累積成績'; }
+}
+applyCalm();
+const isCalm = () => document.documentElement.classList.contains('calm');
+// 平靜模式下按「看一下」：暫時顯示數字，3 分鐘後自動收起
+let peekTimer = null;
+function peek(on) {
+  document.documentElement.classList.toggle('peek', on);
+  const b = el('peekBtn'); if (b) b.textContent = on ? '🙈 收起來' : '👁 看一下';
+  clearTimeout(peekTimer);
+  if (on) peekTimer = setTimeout(() => peek(false), 3 * 60e3);
+  if (data) render();   // 讓圖表提示框等地方跟著更新
+}
+
+// ============ 今年的進度 ============
+function ytdStats(c) {
+  const hist = inRange(data.history, 'ytd');
+  if (hist.length < 2) return null;
+  const start = hist[0], endDate = today();
+  const flows = externalFlows().filter(f => f.date > start.date && f.date <= endDate).reduce((s, f) => s + f.usd, 0);
+  const rets = dailyReturns(hist, outsideAsFlow());
+  const st = realizedStats(), y = String(new Date().getFullYear());
+  const realized = st.stockEvents.concat(st.optEvents).filter(e => e.date.startsWith(y)).reduce((s, e) => s + e.r, 0)
+    + data.transactions.filter(t => t.type === 'income' && t.date.startsWith(y) && /^(股息|退稅|利息)/.test(t.category || '')).reduce((s, t) => s + t.amount, 0);
+  return { start, flows, gain: c.totalUSD - start.usd - flows, twr: rets.reduce((p, x) => p * (1 + x.r), 1) - 1,
+           qqq: benchRet('QQQ', start.date, endDate), voo: benchRet('VOO', start.date, endDate), realized };
+}
+function renderProgress(c) {
+  const box = el('progressBox'); if (!box) return;
+  const y = ytdStats(c);
+  if (!y) { box.innerHTML = '<div class="x-empty">今年的資料還不夠</div>'; el('heroCalm').innerHTML = ''; return; }
+  const twd = v => fx ? `≈ ${fmt(v * fx, 'TWD', { sign: true })}` : '';
+  el('heroCalm').innerHTML = `<span class="muted">今年累積</span> <b class="num">${usd0(y.gain, { sign: true })}</b> <span class="muted num">（${pct(y.twr)}）</span>`;
+  el('progressNote').textContent = `從 ${y.start.date} 收盤起算`;
+  const beat = (b, n) => b == null ? '' : `<div class="x-tile"><div class="k">對 ${n}</div><div class="v num">${pct(y.twr - b)}</div><div class="s">${n} 同期 ${pct(b)}</div></div>`;
+  box.innerHTML = `<div class="x-grid">
+      <div class="x-tile"><div class="k">今年賺到的錢</div><div class="v num">${usd0(y.gain, { sign: true })}</div><div class="s"><span class="num">${twd(y.gain)}</span>・已扣除入金 <span class="num">${usd0(y.flows)}</span></div></div>
+      <div class="x-tile"><div class="k">帳戶報酬率</div><div class="v num">${pct(y.twr)}</div><div class="s">時間加權${outsideAsFlow() ? '，帳外獲利當入金' : ''}</div></div>
+      ${beat(y.qqq, 'Nasdaq 100')}${beat(y.voo, 'S&P 500')}
+      <div class="x-tile"><div class="k">今年已實現</div><div class="v num">${usd0(y.realized, { sign: true })}</div><div class="s">股票＋選擇權＋股息利息，已經落袋的部分</div></div>
+    </div>
+    <div class="x-note">${isCalm() ? '平靜模式開啟中：首頁的金額和今天的漲跌都先收起來。單日的起伏看久了只會累，用整年的成績看自己就好。按「👁 看一下」可以暫時顯示，「◉ 平靜中」可以關掉。' : '想少看一點餘額和每天的漲跌，可以打開右上角的「◎ 平靜」。'}</div>`;
+}
+
+// ============ 近期事件：財報、配息、選擇權到期 ============
+const INDEX_GROUPS = new Set(['SOX', 'NDX', 'SPX', 'BTC', 'SILVER', 'GOLD', 'CASH']);
+let eventCache = { at: 0, key: '', data: null, loading: false };
+function eventSymbols(c) {
+  const set = new Set();
+  const addSym = s => { set.add(s); const u = UNDERLYING[s]; if (u && !INDEX_GROUPS.has(u)) set.add(u); };
+  for (const r of c.rows) addSym(r.sym);
+  for (const o of c.optRows) addSym(occ(o.sym).root);
+  return [...set].sort();
+}
+async function loadEvents(syms) {
+  eventCache.loading = true;
+  try {
+    eventCache.data = await (await fetch('/api/events?symbols=' + encodeURIComponent(syms.join(',')))).json();
+    eventCache.at = Date.now(); eventCache.key = syms.join(',');
+  } catch { eventCache.data = eventCache.data || {}; }
+  eventCache.loading = false;
+  renderEvents(calc());
+}
+function renderEvents(c) {
+  const box = el('eventsBox'); if (!box) return;
+  const syms = eventSymbols(c);
+  if (!syms.length) { box.innerHTML = '<div class="x-empty">目前沒有持股</div>'; return; }
+  if ((eventCache.key !== syms.join(',') || Date.now() - eventCache.at > 3600e3) && !eventCache.loading) loadEvents(syms);
+  const tz = d => new Date(d).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const ev = [];
+  const now = Date.now(), horizon = now + 75 * 864e5;
+  for (const [sym, e] of Object.entries(eventCache.data || {})) {
+    if (sym.startsWith('_') || !e) continue;
+    const affected = c.rows.filter(r => grp(r.sym) === grp(sym)).map(r => r.sym)
+      .concat(c.optRows.filter(o => grp(occ(o.sym).root) === grp(sym)).map(o => optName(o.sym)));
+    if (e.earnings && e.earnings * 1000 > now - 864e5 && e.earnings * 1000 < horizon)
+      ev.push({ t: e.earnings * 1000, kind: '財報', title: `${grpName(grp(sym))} 公布財報${e.earningsEstimate ? '（預估日期）' : ''}`, when: tz(e.earnings * 1000) + '（台灣時間）', sub: affected.length ? `會影響：${affected.join('、')}` : '' });
+    if (e.exDividend && e.exDividend * 1000 > now - 864e5 && e.exDividend * 1000 < horizon)
+      ev.push({ t: e.exDividend * 1000, kind: '除息', title: `${sym} 除息`, when: tz(e.exDividend * 1000), sub: '除息日前一天收盤持有才領得到' });
+  }
+  for (const o of c.optRows) {
+    const oc = occ(o.sym), t = new Date(oc.exp + 'T20:00:00Z').getTime();
+    ev.push({ t, kind: '到期', title: `${optName(o.sym)} 到期`, when: tz(t) + '（美東收盤）', sub: `${o.qty > 0 ? '買方' : '賣方'} ${Math.abs(o.qty)} 口` });
+  }
+  ev.sort((a, b) => a.t - b.t);
+  // 同一家公司的不同股別（GOOG、GOOGL）會查到同一場財報，只留一筆
+  const seen = new Set();
+  for (let i = ev.length - 1; i >= 0; i--) { const k = ev[i].kind + ev[i].title + new Date(ev[i].t).toDateString(); if (seen.has(k)) ev.splice(i, 1); else seen.add(k); }
+  if (!ev.length) { box.innerHTML = `<div class="x-empty">${eventCache.loading || !eventCache.data ? '讀取中…' : '接下來 75 天沒有已知的事件'}</div>`; return; }
+  box.innerHTML = ev.map(e => {
+    const d = Math.ceil((e.t - now) / 864e5);
+    return `<div class="ev-row"><span class="x-badge ${e.kind === '財報' ? 'danger' : ''}">${e.kind}</span>
+      <div class="ev-main"><b>${esc(e.title)}</b><span class="x-sub">${esc(e.when)}${e.sub ? '・' + esc(e.sub) : ''}</span></div>
+      <div class="ev-days num">${d <= 0 ? '今天' : `還有 ${d} 天`}</div></div>`;
+  }).join('') + '<div class="x-note">財報與配息日期來自 Yahoo；財報當天股價和選擇權的波動通常最大。</div>';
+}
+
 // ============ 警示 ============
-const ALERT_DEFAULTS = { on: true, lev: 2, single: 200, dd: 15, dte: 3, notify: false };
+const ALERT_DEFAULTS = { on: true, lev: 2, single: 200, dd: 15, dte: 3, optMax: 10, cool: true, coolPct: 2.5, notify: false };
 const alertCfg = () => ({ ...ALERT_DEFAULTS, ...(data?.settings?.alerts || {}) });
 function computeAlerts(c, expo) {
   const a = alertCfg(), out = [];
@@ -165,6 +267,17 @@ function computeAlerts(c, expo) {
     for (const r of rets) { idx *= 1 + r.r; top = Math.max(top, idx); }
     const dd = idx / top - 1;
     if (-dd * 100 > a.dd) out.push({ lvl: 'danger', tag: '回撤', msg: `目前距離高點 <b>${pct(dd)}</b>，超過你設定的 ${a.dd}%` });
+  }
+  // 冷靜期：大跌的當天、或選擇權虧很多時，提醒先不要開新部位
+  const base = c.totalUSD - c.day, dayPct = base > 0 ? c.day / base : 0;
+  if (a.cool && dayPct * 100 <= -a.coolPct)
+    out.push({ lvl: 'calm', tag: '冷靜', msg: `今天帳戶波動比較大${isCalm() ? '' : `（<b>${pct(dayPct)}</b>）`}。虧損的當天最容易做出衝動的決定，建議今天先不要開新部位，明天再看。` });
+  for (const o of c.optRows) {
+    const share = Math.abs(o.value) / c.totalUSD;
+    if (share * 100 > a.optMax) out.push({ lvl: 'warn', tag: '部位', msg: `${esc(optName(o.sym))} 佔淨資產 <b>${pctPlain(share)}</b>，超過單筆上限 ${a.optMax}%` });
+    const paid = o.avg * 100 * o.qty;
+    if (a.cool && o.qty > 0 && o.mark != null && paid > 0 && o.value < paid * 0.75)
+      out.push({ lvl: 'calm', tag: '冷靜', msg: `${esc(optName(o.sym))} 目前比買進時少了 ${isCalm() ? '一些' : `<b>${pctPlain(1 - o.value / paid)}</b>`}。照你事先決定的停損計畫走就好，不要為了攤平再加碼。` });
   }
   for (const o of c.optRows) {
     const oc = occ(o.sym), S = quotes[oc.root]?.price, dte = days(today(), oc.exp);
@@ -204,9 +317,12 @@ function renderAlertSettings() {
     <label>單一標的曝險超過淨資產 <span><input type="number" step="10" min="0" data-alert="single" value="${a.single}"> %</span></label>
     <label>距離高點回撤超過 <span><input type="number" step="1" min="0" data-alert="dd" value="${a.dd}"> %</span></label>
     <label>選擇權距到期少於 <span><input type="number" step="1" min="0" data-alert="dte" value="${a.dte}"> 天</span></label>
+    <label>單一選擇權部位超過淨資產 <span><input type="number" step="1" min="0" data-alert="optMax" value="${a.optMax}"> %</span></label>
+    <label>冷靜期提醒 <input type="checkbox" data-alert="cool" ${a.cool ? 'checked' : ''}></label>
+    <label>單日帳戶跌幅超過 <span><input type="number" step="0.5" min="0" data-alert="coolPct" value="${a.coolPct}"> % 時提醒冷靜</span></label>
     <label>瀏覽器通知（網頁開著時） <input type="checkbox" data-alert="notify" ${a.notify ? 'checked' : ''}></label>
   </div>
-  <div class="x-note">賣出的選擇權變成價內時一定會提醒。警示只在網頁開著時檢查；按橫幅右邊的 ✕ 可以今天先不顯示。</div>`;
+  <div class="x-note">冷靜期提醒：單日跌幅超過設定值，或買進的選擇權虧損超過 25% 時，建議當天先不要開新部位。賣出的選擇權變成價內時一定會提醒。警示只在網頁開著時檢查；按橫幅右邊的 ✕ 可以今天先不顯示。</div>`;
 }
 
 // ============ 今日損益貢獻 ============
@@ -466,6 +582,68 @@ function renderStress(c) {
   });
 }
 
+// ============ 下單前檢查：部位計算機＋檢查清單 ============
+const CHECK_ITEMS = [
+  '我寫得出這筆的買進理由，不是因為想快點把虧損賺回來',
+  '我已經決定好停損點，跌到那裡會照著做',
+  '這筆最多虧損在我設定的比例以內',
+  '我現在情緒平穩，今天沒有剛虧完錢',
+  '買進後的槓桿率還在我設定的上限以內',
+];
+const ck = { type: store.get('ck.type', 'stock'), sym: '', entry: '', stop: '', prem: '', delta: '',
+             risk: Number(store.get('ck.risk', '1')), optPct: Number(store.get('ck.optPct', '3')), checks: new Set() };
+function renderCheck(c) {
+  const box = el('checkBox'); if (!box) return;
+  if (!el('ckForm')) {
+    box.innerHTML = `<div id="ckForm">
+      <div class="ck-row"><span class="seg" id="ckType"><button data-ck-type="stock">股票／ETF</button><button data-ck-type="option">買選擇權</button></span>
+        <label class="ck-field">代號 <input data-ck="sym" placeholder="例如 GGLL" style="text-transform:uppercase"></label></div>
+      <div class="ck-row" data-ck-for="stock">
+        <label class="ck-field">進場價 <input type="number" step="any" data-ck="entry"></label>
+        <label class="ck-field">停損價 <input type="number" step="any" data-ck="stop"></label>
+        <label class="ck-field">這筆最多虧淨資產 <input type="number" step="0.5" min="0" data-ck="risk"> %</label></div>
+      <div class="ck-row" data-ck-for="option">
+        <label class="ck-field">每股權利金 <input type="number" step="any" data-ck="prem"></label>
+        <label class="ck-field">Delta（選填） <input type="number" step="0.01" data-ck="delta"></label>
+        <label class="ck-field">最多投入淨資產 <input type="number" step="0.5" min="0" data-ck="optPct"> %</label></div>
+      <div id="ckOut"></div>
+      <div class="ck-list">${CHECK_ITEMS.map((t, i) => `<label><input type="checkbox" data-ck-item="${i}"> ${t}</label>`).join('')}</div>
+      <div id="ckVerdict"></div></div>`;
+    box.querySelector('[data-ck="risk"]').value = ck.risk;
+    box.querySelector('[data-ck="optPct"]').value = ck.optPct;
+  }
+  document.querySelectorAll('[data-ck-type]').forEach(b => b.classList.toggle('on', b.dataset.ckType === ck.type));
+  document.querySelectorAll('[data-ck-for]').forEach(r => { r.hidden = r.dataset.ckFor !== ck.type; });
+  const eq = c.totalUSD, sym = ck.sym.toUpperCase(), lev = sym ? levOf(sym) : 1, n = v => parseFloat(v);
+  let out = '<div class="x-note">填入價格後會算出最多能買多少。</div>';
+  if (ck.type === 'stock' && n(ck.entry) > 0 && n(ck.stop) > 0) {
+    const entry = n(ck.entry), stop = n(ck.stop), per = entry - stop;
+    if (per <= 0) out = '<div class="x-note">停損價要低於進場價。</div>';
+    else {
+      const maxLoss = eq * ck.risk / 100, qty = Math.floor(maxLoss / per), cost = qty * entry;
+      const newLev = (c.exposure + cost * lev) / eq;
+      out = `<div class="x-grid">
+        <div class="x-tile"><div class="k">最多買</div><div class="v num">${qty} 股</div><div class="s">停損時虧 ${usd0(qty * per)}（淨資產 ${pctPlain(qty * per / eq, 1)}）</div></div>
+        <div class="x-tile"><div class="k">需要資金</div><div class="v num">${usd0(cost)}</div><div class="s">佔淨資產 ${pctPlain(cost / eq)}${cost > Math.max(c.cashUSD, 0) ? '，會用到融資' : ''}</div></div>
+        <div class="x-tile"><div class="k">買進後槓桿率</div><div class="v num ${newLev > alertCfg().lev ? 'up' : ''}">${newLev.toFixed(2)}x</div><div class="s">現在 ${c.leverage?.toFixed(2)}x${lev !== 1 ? `・${sym} 以 ${lev} 倍計算` : ''}</div></div></div>`;
+    }
+  } else if (ck.type === 'option' && n(ck.prem) > 0) {
+    const prem = n(ck.prem) * 100, budget = eq * ck.optPct / 100, qty = Math.floor(budget / prem), cost = qty * prem;
+    const S = sym ? quotes[sym]?.price : null, d = n(ck.delta);
+    const addExp = S && d ? qty * 100 * d * S * lev : null;
+    out = `<div class="x-grid">
+      <div class="x-tile"><div class="k">最多買</div><div class="v num">${qty} 口</div><div class="s">每口 ${usd0(prem)}；預算 ${usd0(budget)}</div></div>
+      <div class="x-tile"><div class="k">最多虧損</div><div class="v num">${usd0(cost)}</div><div class="s">全部歸零時，佔淨資產 ${pctPlain(cost / eq, 1)}</div></div>
+      <div class="x-tile"><div class="k">買進後槓桿率</div><div class="v num">${addExp == null ? '—' : ((c.exposure + addExp) / eq).toFixed(2) + 'x'}</div><div class="s">${addExp == null ? '填代號和 delta 就會計算' : `增加曝險 ${usd0(addExp)}`}</div></div></div>
+      ${qty === 0 ? '<div class="x-note">預算連一口都買不起：這筆對你的資產規模來說太大了。</div>' : ''}`;
+  }
+  el('ckOut').innerHTML = out;
+  const done = ck.checks.size;
+  el('ckVerdict').innerHTML = done === CHECK_ITEMS.length
+    ? '<div class="ck-ok">✓ 都確認了。照你算好的數量和停損下單，然後就交給計畫。</div>'
+    : `<div class="x-note">還有 ${CHECK_ITEMS.length - done} 項沒有勾。有任何一項勾不下去，這筆可以先等等，機會永遠都有。</div>`;
+}
+
 // ============ 選擇權部位風險 ============
 function renderOptRisk(c) {
   const box = el('optRiskBox'); if (!box) return;
@@ -507,6 +685,31 @@ function renderOptRisk(c) {
       <tbody>${rows}</tbody></table></div>
     <div class="x-note">每天時間價值（theta）合計 <b class="num ${cls(thetaSum)}">${usd(thetaSum, { sign: true })}</b>：正的代表時間經過對你有利（賣方），負的代表每天在流失（買方）。
       價內機率、theta 用 Black-Scholes 估算，隱含波動率由 Yahoo 報價反推（延遲約 20 分鐘）。損益兩平以開倉權利金計算。</div>`;
+}
+
+// ============ 交易日記 ============
+const MOODS = [['calm', '😌', '平靜'], ['sure', '🙂', '有把握'], ['meh', '😐', '普通'], ['anx', '😣', '焦慮'], ['rash', '😤', '衝動']];
+let jMood = 'calm';
+function renderJournal() {
+  const box = el('journalBox'); if (!box) return;
+  if (!el('jForm')) {
+    box.innerHTML = `<div id="jForm">
+      <div class="ck-row"><span class="seg" id="jMoods">${MOODS.map(([k, e, t]) => `<button data-mood="${k}">${e} ${t}</button>`).join('')}</span>
+        <label class="ck-field">代號（選填） <input id="jSym" style="text-transform:uppercase;width:90px"></label></div>
+      <textarea id="jText" rows="3" placeholder="現在在想什麼？為什麼買、為什麼賣、心情怎麼樣……寫下來就好。"></textarea>
+      <div style="text-align:right;margin-top:6px"><button class="primary" id="jSave">記下來</button></div></div>
+      <div id="jList"></div>`;
+  }
+  document.querySelectorAll('[data-mood]').forEach(b => b.classList.toggle('on', b.dataset.mood === jMood));
+  const list = [...(data.journal || [])].sort((a, b) => b.ts - a.ts);
+  const moodOf = k => MOODS.find(m => m[0] === k) || MOODS[2];
+  const counts = MOODS.map(([k, e, t]) => [e, t, list.filter(x => x.mood === k).length]).filter(x => x[2]);
+  el('jList').innerHTML = list.length
+    ? `<div class="x-note" style="margin:10px 0 6px">${counts.map(([e, t, n]) => `${e} ${t} ${n} 次`).join('・')}</div>` + list.slice(0, 50).map(j => `<div class="j-item">
+        <div class="j-head"><span>${moodOf(j.mood)[1]} <b>${j.date}</b>${j.sym ? ` <span class="x-chip">${esc(j.sym)}</span>` : ''}</span>
+          <button class="ghost" data-jdel="${j.id}" title="刪除這篇">✕</button></div>
+        <div class="j-text">${esc(j.text).replace(/\n/g, '<br>')}</div></div>`).join('')
+    : '<div class="x-empty">還沒有日記。下單前後花 30 秒寫一句，之後回頭看會很有收穫。</div>';
 }
 
 // ============ 交易分析 ============
@@ -715,69 +918,19 @@ function renderFees() {
     <div class="x-note">成本＝成交金額與實際收付金額的差（券商手續費、SEC／FINRA 規費等），由券商紀錄推算。買賣價差、匯差不在其中。</div>`;
 }
 
-// ============ 台灣海外所得整理 ============
-function taxRows() {
-  const st = realizedStats(), rows = [];
-  const fxOn = d => lastOnOrBefore(Object.fromEntries(data.history.map(h => [h.date, h.fx])), d) || fx;
-  for (const e of st.stockEvents) rows.push({ date: e.date, kind: '股票', sym: e.sym, usd: e.r });
-  for (const e of st.optEvents) rows.push({ date: e.date, kind: '選擇權', sym: e.sym, usd: e.r });
-  for (const t of data.transactions) {
-    if (t.type !== 'income' || t.currency !== 'USD') continue;
-    const c = t.category || '';
-    if (c.startsWith('股息')) rows.push({ date: t.date, kind: '股息（實收）', sym: c.replace('股息', '').trim(), usd: t.amount });
-    else if (c.startsWith('利息')) rows.push({ date: t.date, kind: '利息', sym: '', usd: t.amount });
-    else if (c.startsWith('退稅')) rows.push({ date: t.date, kind: '預扣稅退回', sym: c.replace('退稅', '').trim(), usd: t.amount });
-  }
-  for (const r of rows) { r.fx = fxOn(r.date); r.twd = r.usd * r.fx; }
-  return rows.sort((a, b) => a.date.localeCompare(b.date));
-}
-function renderTax() {
-  const box = el('taxBox'); if (!box) return;
-  const rows = taxRows();
-  if (!rows.length) { box.innerHTML = '<div class="x-empty">還沒有已實現所得</div>'; return; }
-  const years = [...new Set(rows.map(r => r.date.slice(0, 4)))].sort().reverse();
-  box.innerHTML = years.map(y => {
-    const R = rows.filter(r => r.date.startsWith(y)), sum = (k, f = 'twd') => R.filter(r => r.kind === k).reduce((s, r) => s + r[f], 0);
-    const gains = sum('股票') + sum('選擇權'), gainsU = sum('股票', 'usd') + sum('選擇權', 'usd');
-    const divNet = sum('股息（實收）'), divGross = divNet / 0.7, withheld = divGross - divNet - sum('預扣稅退回');
-    const interest = sum('利息');
-    // 財產交易所得：同一年度的損失可以抵銷所得，抵完是負的就算 0
-    const total = Math.max(gains, 0) + divGross + interest;
-    const pctTo = Math.min(total / 1e6, 1);
-    return `<div style="margin-bottom:16px"><div style="font-size:15px;font-weight:600;margin-bottom:8px">${y} 年</div>
-      <div class="x-grid">
-        <div class="x-tile"><div class="k">海外所得合計（估）</div><div class="v num">${fmt(total, 'TWD')}</div><div class="s">${total >= 1e6 ? '<b class="up">已達 100 萬，需計入基本所得額申報</b>' : `距離 100 萬申報門檻還有 ${fmt(1e6 - total, 'TWD')}`}</div>
-          <div class="hbar-track" style="margin-top:6px;height:8px"><i class="${total >= 1e6 ? 'pos' : ''}" style="left:0;width:${pctTo * 100}%"></i></div></div>
-        <div class="x-tile"><div class="k">財產交易所得（股票＋選擇權）</div><div class="v num ${cls(gains)}">${fmt(gains, 'TWD', { sign: true })}</div><div class="s">${usd(gainsU, { sign: true })}・股票 ${fmt(sum('股票'), 'TWD', { sign: true })}・選擇權 ${fmt(sum('選擇權'), 'TWD', { sign: true })}</div></div>
-        <div class="x-tile"><div class="k">股利所得（稅前，估）</div><div class="v num">${fmt(divGross, 'TWD')}</div><div class="s">實收 ${fmt(divNet, 'TWD')}，美國預扣約 ${fmt(withheld, 'TWD')}</div></div>
-        <div class="x-tile"><div class="k">利息所得</div><div class="v num">${fmt(interest, 'TWD')}</div><div class="s">現金利息與股票出借</div></div>
-      </div></div>`;
-  }).join('') + `<div class="x-note">依最低稅負制：海外所得一年合計達 NT$100 萬，要全數計入基本所得額；基本所得額超過免稅額（近年約 NT$750 萬，以財政部當年度公告為準）才需要繳基本稅額。
-    已實現損益用平均成本法、換成台幣用當天匯率；股利稅前金額以美國 30% 預扣稅回推（台積電 ADR 等外國公司不完全適用）；被預扣的稅在申報時可能可以扣抵。
-    這是整理參考，不是正式報稅文件，申報前請以券商的年度報表為準。帳外獲利（例如加密貨幣交易所的白銀獲利）不在這裡，如果屬於海外所得也要另外計算。</div>`;
-}
-function exportTaxCsv() {
-  const rows = taxRows();
-  const lines = [['日期', '類別', '代號', '金額（美元）', '匯率', '金額（台幣）'].join(',')]
-    .concat(rows.map(r => [r.date, r.kind, r.sym, r.usd.toFixed(2), r.fx.toFixed(4), Math.round(r.twd)].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')));
-  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `海外所得明細-${today()}.csv`; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-}
-
 // ============ 對外：每次畫面更新時呼叫 ============
 window.renderExtras = function renderExtras(c) {
   if (!data) return;
   c = c || calc();
-  applyTab(); applyPrivacy();
+  applyTab(); applyPrivacy(); applyCalm();
+  try { renderProgress(c); } catch (err) { console.error('progress', err); }
   const expo = exposureGroups(c);
   renderAlertBar(computeAlerts(c, expo));
   const safe = (name, fn) => { try { fn(); } catch (err) { console.error(name, err); const b = el(name); if (b) b.innerHTML = `<div class="x-empty">這個區塊出錯了：${esc(err.message)}</div>`; } };
-  if (curTab === 'overview') safe('contribBox', () => renderContrib(c));
+  if (curTab === 'overview') { safe('contribBox', () => renderContrib(c)); safe('eventsBox', () => renderEvents(c)); }
   if (curTab === 'perf') { safe('metricsBox', renderMetrics); safe('heatBox', renderHeat); }
-  if (curTab === 'risk') { safe('exposureBox', () => renderExposure(c, expo)); safe('stressBox', () => renderStress(c)); safe('optRiskBox', () => renderOptRisk(c)); safe('alertSettings', renderAlertSettings); }
-  if (curTab === 'trade') { safe('analysisBox', renderAnalysis); safe('monthlyBox', renderMonthly); safe('feeBox', renderFees); }
-  if (curTab === 'tax') safe('taxBox', renderTax);
+  if (curTab === 'risk') { safe('exposureBox', () => renderExposure(c, expo)); safe('stressBox', () => renderStress(c)); safe('optRiskBox', () => renderOptRisk(c)); safe('checkBox', () => renderCheck(c)); safe('alertSettings', renderAlertSettings); }
+  if (curTab === 'trade') { safe('journalBox', renderJournal); safe('analysisBox', renderAnalysis); safe('monthlyBox', renderMonthly); safe('feeBox', renderFees); }
 };
 
 // ============ 事件 ============
@@ -785,6 +938,20 @@ document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.tab) showTab(b.dataset.tab);
   else if (b.id === 'privacyBtn') { store.set('privacy', store.get('privacy', '0') === '1' ? '0' : '1'); applyPrivacy(); }
+  else if (b.id === 'calmBtn') { store.set('calm', isCalm() ? '0' : '1'); peek(false); applyCalm(); render(); }
+  else if (b.id === 'peekBtn') peek(!document.documentElement.classList.contains('peek'));
+  else if (b.dataset.ckType) { ck.type = b.dataset.ckType; store.set('ck.type', ck.type); renderCheck(calc()); }
+  else if (b.dataset.mood) { jMood = b.dataset.mood; renderJournal(); }
+  else if (b.id === 'jSave') {
+    const text = el('jText').value.trim();
+    if (!text) { el('jText').focus(); return; }
+    data.journal = [...(data.journal || []), { id: uid(), date: today(), ts: Date.now(), mood: jMood, sym: el('jSym').value.trim().toUpperCase(), text }];
+    save(); el('jText').value = ''; el('jSym').value = ''; renderJournal(); toast('記下來了');
+  }
+  else if (b.dataset.jdel) {
+    if (!b.dataset.confirm) { b.dataset.confirm = '1'; b.textContent = '確定刪除？'; setTimeout(() => { if (b.isConnected) { delete b.dataset.confirm; b.textContent = '✕'; } }, 3000); return; }
+    data.journal = (data.journal || []).filter(j => j.id !== b.dataset.jdel); save(); renderJournal();
+  }
   else if (b.dataset.x === 'metrics') { metricsRange = b.dataset.v; store.set('metricsRange', metricsRange); renderMetrics(); }
   else if (b.dataset.ana) { anaView = b.dataset.ana; store.set('anaView', anaView); renderAnalysis(); }
   else if (b.dataset.anaall) { anaShowAll = !anaShowAll; renderAnalysis(); }
@@ -793,16 +960,22 @@ document.addEventListener('click', e => {
     const key = 'dismiss.' + today(), set = new Set((store.get(key, '') || '').split('|').filter(Boolean));
     set.add(b.dataset.dismiss); store.set(key, [...set].join('|')); window.renderExtras();
   }
-  else if (b.id === 'taxCsvBtn') exportTaxCsv();
 });
 document.addEventListener('input', e => {
   const t = e.target;
   if (t.id === 'stressRange') { stressMove = +t.value; for (const k in stressGroup) delete stressGroup[k]; store.set('stressMove', stressMove); renderStress(calc()); }
   else if (t.dataset.sgroup) { stressGroup[t.dataset.sgroup] = +t.value; renderStress(calc()); }
+  else if (t.dataset.ck) {
+    const k = t.dataset.ck; ck[k] = ['risk', 'optPct'].includes(k) ? +t.value : t.value;
+    if (k === 'sym') { const q = quotes[t.value.trim().toUpperCase()]; const e = document.querySelector('[data-ck="entry"]'); if (q?.price && !e.value) { e.value = q.price; ck.entry = String(q.price); } }
+    if (k === 'risk' || k === 'optPct') store.set('ck.' + k, t.value);
+    renderCheck(calc());
+  }
 });
 document.addEventListener('change', e => {
   const t = e.target;
-  if (t.id === 'outsideFlowChk') { store.set('outsideAsFlow', t.checked ? '1' : '0'); renderMetrics(); renderHeat(); return; }
+  if (t.id === 'outsideFlowChk') { store.set('outsideAsFlow', t.checked ? '1' : '0'); renderMetrics(); renderHeat(); renderProgress(calc()); return; }
+  if (t.dataset.ckItem != null) { if (t.checked) ck.checks.add(t.dataset.ckItem); else ck.checks.delete(t.dataset.ckItem); renderCheck(calc()); return; }
   if (!t.dataset.alert) return;
   const a = { ...alertCfg() };
   a[t.dataset.alert] = t.type === 'checkbox' ? t.checked : +t.value;
