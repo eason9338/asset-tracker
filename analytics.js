@@ -193,7 +193,7 @@ function renderProgress(c) {
       ${beat(y.qqq, 'Nasdaq 100')}${beat(y.voo, 'S&P 500')}
       <div class="x-tile"><div class="k">今年已實現</div><div class="v num">${usd0(y.realized, { sign: true })}</div><div class="s">股票＋選擇權＋股息利息，已經落袋的部分</div></div>
     </div>
-    <div class="x-note">${isCalm() ? '平靜模式開啟中：首頁的金額和今天的漲跌都先收起來。單日的起伏看久了只會累，用整年的成績看自己就好。按「👁 看一下」可以暫時顯示，「◉ 平靜中」可以關掉。' : '想少看一點餘額和每天的漲跌，可以打開右上角的「◎ 平靜」。'}</div>`;
+    <div class="x-note">${isCalm() ? '平靜模式開啟中：所有分頁的金額、漲跌和圖表都先收起來。單日的起伏看久了只會累，用整年的成績看自己就好。按「👁 看一下」可以暫時顯示，「◉ 平靜中」可以關掉。' : '想少看一點餘額和每天的漲跌，可以打開右上角的「◎ 平靜」。'}</div>`;
 }
 
 // ============ 近期事件：財報、配息、選擇權到期 ============
@@ -414,8 +414,8 @@ function renderMetrics() {
       <div class="x-tile"><div class="k">年化報酬</div><div class="v num ${cls(me.ann ?? me.total)}">${me.ann == null ? pct(me.total) : pct(me.ann)}</div><div class="s">${me.ann == null ? '期間太短，顯示期間報酬' : `期間 ${from} ～ ${to}`}</div></div>
       <div class="x-tile"><div class="k">夏普比率</div><div class="v num">${n2(me.sharpe)}</div><div class="s">每承擔一單位波動，多賺多少（無風險利率 ${pctPlain(rf, 2)}）</div></div>
       <div class="x-tile"><div class="k">最大回撤</div><div class="v num down">${pct(me.mdd)}</div><div class="s">${me.trough ? `${me.ddPeak} 高點 → ${me.trough} 低點${me.recov ? `，${me.recov} 回到前高` : '，還沒回到前高'}` : '—'}</div></div>
-      <div class="x-tile"><div class="k">Beta（對 Nasdaq 100）</div><div class="v num">${n2(bq.beta)}</div><div class="s">大盤漲跌 1%，你平均漲跌約 ${n2(bq.beta)}%；相關係數 ${n2(bq.corr)}</div></div>
-      <div class="x-tile"><div class="k">Beta（對 S&P 500）</div><div class="v num">${n2(bv.beta)}</div><div class="s">相關係數 ${n2(bv.corr)}</div></div>
+      <div class="x-tile"><div class="k">Beta（對 Nasdaq 100）</div><div class="v num">${n2(bq.beta)}</div><div class="s">大盤漲跌 1%，你平均漲跌約 <span class="x-money">${n2(bq.beta)}%</span>；相關係數 <span class="x-money">${n2(bq.corr)}</span></div></div>
+      <div class="x-tile"><div class="k">Beta（對 S&P 500）</div><div class="v num">${n2(bv.beta)}</div><div class="s">相關係數 <span class="x-money">${n2(bv.corr)}</span></div></div>
     </div>
     <div class="table-wrap" style="margin:0"><table class="x-table">
       <thead><tr><th class="l">指標</th><th>我的組合</th><th>Nasdaq 100</th><th>S&P 500</th></tr></thead>
@@ -487,7 +487,7 @@ function renderExposure(c, expo) {
   if (!expo.all.length) { box.innerHTML = '<div class="x-empty">目前沒有持股</div>'; return; }
   const eq = c.totalUSD, max = Math.max(eq, ...expo.all.map(g => Math.abs(g.total)), 1);
   const top = expo.groups[0];
-  el('exposureNote').textContent = top ? `最大：${grpName(top.g)} ${pctPlain(top.total / eq)} 淨資產` : '';
+  el('exposureNote').innerHTML = top ? `最大：${esc(grpName(top.g))} <span class="x-money">${pctPlain(top.total / eq)}</span> 淨資產` : '';
   box.innerHTML = expo.all.map(g => {
     const w = Math.abs(g.total) / max * 100, share = g.total / eq;
     return `<div class="hbar-row"><div class="hbar-name">${esc(grpName(g.g))}</div>
@@ -565,7 +565,7 @@ function renderStress(c) {
   const sameAll = !Object.keys(stressGroup).length;
   el('stressOut').innerHTML = `<div class="x-grid">
       <div class="x-tile"><div class="k">淨資產</div><div class="v num">${usd0(sc.equity)}</div><div class="s num ${cls(dEq)}">${usd0(dEq, { sign: true })}（${pct(dEq / base.equity)}）</div></div>
-      <div class="x-tile"><div class="k">槓桿率</div><div class="v num">${sc.leverage == null ? '—' : sc.leverage.toFixed(2) + 'x'}</div><div class="s">現在 ${base.leverage?.toFixed(2)}x</div></div>
+      <div class="x-tile"><div class="k">槓桿率</div><div class="v num">${sc.leverage == null ? '—' : sc.leverage.toFixed(2) + 'x'}</div><div class="s">現在 <span class="x-money">${base.leverage?.toFixed(2)}x</span></div></div>
       <div class="x-tile"><div class="k">淨資產腰斬</div><div class="v num down">${half == null ? '不會' : pct(half, 0)}</div><div class="s">所有標的同時跌這麼多時</div></div>
       <div class="x-tile"><div class="k">估計追繳點</div><div class="v num down">${call == null ? '不會' : call === 0 ? '已低於維持率' : pct(call, 0)}</div><div class="s">依一般券商維持率粗估（股票 25%、槓桿 ETF 依倍數提高），實際以券商為準</div></div>
       <div class="x-tile"><div class="k">淨資產歸零</div><div class="v num down">${zero == null ? '不會' : pct(zero, 0)}</div><div class="s">所有標的同時跌這麼多時</div></div>
@@ -625,7 +625,7 @@ function renderCheck(c) {
       out = `<div class="x-grid">
         <div class="x-tile"><div class="k">最多買</div><div class="v num">${qty} 股</div><div class="s">停損時虧 ${usd0(qty * per)}（淨資產 ${pctPlain(qty * per / eq, 1)}）</div></div>
         <div class="x-tile"><div class="k">需要資金</div><div class="v num">${usd0(cost)}</div><div class="s">佔淨資產 ${pctPlain(cost / eq)}${cost > Math.max(c.cashUSD, 0) ? '，會用到融資' : ''}</div></div>
-        <div class="x-tile"><div class="k">買進後槓桿率</div><div class="v num ${newLev > alertCfg().lev ? 'up' : ''}">${newLev.toFixed(2)}x</div><div class="s">現在 ${c.leverage?.toFixed(2)}x${lev !== 1 ? `・${sym} 以 ${lev} 倍計算` : ''}</div></div></div>`;
+        <div class="x-tile"><div class="k">買進後槓桿率</div><div class="v num ${newLev > alertCfg().lev ? 'up' : ''}">${newLev.toFixed(2)}x</div><div class="s">現在 <span class="x-money">${c.leverage?.toFixed(2)}x</span>${lev !== 1 ? `・${sym} 以 ${lev} 倍計算` : ''}</div></div></div>`;
     }
   } else if (ck.type === 'option' && n(ck.prem) > 0) {
     const prem = n(ck.prem) * 100, budget = eq * ck.optPct / 100, qty = Math.floor(budget / prem), cost = qty * prem;

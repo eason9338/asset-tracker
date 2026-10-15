@@ -105,11 +105,10 @@ details.x-details > summary { cursor: pointer; font-size: 13px; color: var(--tex
 :root:not(.calm) #heroCalm { display: none; }
 :root.calm:not(.peek) #calmMsg { display: inline; color: var(--text-3); font-size: 13px; }
 :root.calm:not(.peek) #heroCalm { display: none; }
-/* 金額、漲跌、損益、圖表全部模糊（所有分頁），紅綠改中性色 */
+/* 平靜模式：數字換成灰色方塊（不是模糊，完全看不到）；圖表整張收起來；紅綠色改中性 */
 :root.calm:not(.peek) .hero-value,
 :root.calm:not(.peek) .wrap .num,
 :root.calm:not(.peek) .wrap .v,
-:root.calm:not(.peek) .wrap .chart-box,
 :root.calm:not(.peek) .wrap .legend b,
 :root.calm:not(.peek) .wrap .hbar-val,
 :root.calm:not(.peek) .wrap .x-chip,
@@ -119,11 +118,35 @@ details.x-details > summary { cursor: pointer; font-size: 13px; color: var(--tex
 :root.calm:not(.peek) .wrap .compare-note b,
 :root.calm:not(.peek) .wrap .pnl-total b,
 :root.calm:not(.peek) .wrap .pnl-notes,
-:root.calm:not(.peek) .alert-item .msg b { filter: blur(9px); user-select: none; pointer-events: none; }
+:root.calm:not(.peek) .alert-item .msg b {
+  color: transparent !important; background: var(--surface-2) !important; border-radius: 5px;
+  text-shadow: none !important; user-select: none; pointer-events: none;
+}
+:root.calm:not(.peek) .hero-value *,
+:root.calm:not(.peek) .wrap .num *,
+:root.calm:not(.peek) .wrap .v *,
+:root.calm:not(.peek) .wrap .legend b *,
+:root.calm:not(.peek) .wrap .hbar-val *,
+:root.calm:not(.peek) .wrap .x-chip *,
+:root.calm:not(.peek) .wrap .heat td:not(.lbl) *,
+:root.calm:not(.peek) .wrap .stress-move *,
+:root.calm:not(.peek) .wrap .x-money *,
+:root.calm:not(.peek) .wrap .compare-note b *,
+:root.calm:not(.peek) .wrap .pnl-total b *,
+:root.calm:not(.peek) .wrap .pnl-notes *,
+:root.calm:not(.peek) .alert-item .msg b * { color: transparent !important; background: transparent !important; }
+:root.calm:not(.peek) .wrap .hbar-track i { background: var(--text-3) !important; }
 :root.calm:not(.peek) .wrap, :root.calm:not(.peek) .hero { --up: var(--text-2); --down: var(--text-2); }
-/* 不是金額的，不用模糊：天數、日期、代號 */
+/* 圖表：線條的走向本身就透露漲跌，整張藏起來 */
+:root.calm:not(.peek) .wrap .chart-box > * { visibility: hidden !important; }
+:root.calm:not(.peek) .wrap .chart-box::after {
+  content: '圖表先收起來了，按右上角「👁 看一下」顯示'; position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 16px;
+  background: var(--surface-2); border-radius: 10px; color: var(--text-3); font-size: 13px;
+}
+/* 不是金額的，維持清楚：日期、天數 */
 :root.calm:not(.peek) .wrap .ev-days,
-:root.calm:not(.peek) #txBody td:first-child { filter: none; pointer-events: auto; }
+:root.calm:not(.peek) #txBody td:first-child { color: inherit !important; background: transparent !important; pointer-events: auto; }
 
 /* ---------- 近期事件 ---------- */
 .ev-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
