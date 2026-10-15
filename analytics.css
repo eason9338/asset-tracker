@@ -105,16 +105,25 @@ details.x-details > summary { cursor: pointer; font-size: 13px; color: var(--tex
 :root:not(.calm) #heroCalm { display: none; }
 :root.calm:not(.peek) #calmMsg { display: inline; color: var(--text-3); font-size: 13px; }
 :root.calm:not(.peek) #heroCalm { display: none; }
-/* 金額先模糊、紅綠改中性色；只影響最上面的總資產和總覽分頁 */
+/* 金額、漲跌、損益、圖表全部模糊（所有分頁），紅綠改中性色 */
 :root.calm:not(.peek) .hero-value,
-:root.calm:not(.peek) section[data-panel="overview"] .num,
-:root.calm:not(.peek) section[data-panel="overview"] .v,
-:root.calm:not(.peek) section[data-panel="overview"] .axis-text,
-:root.calm:not(.peek) section[data-panel="overview"] .chart-tip,
-:root.calm:not(.peek) .alert-item .msg b { filter: blur(9px); user-select: none; }
-:root.calm:not(.peek) section[data-panel="overview"], :root.calm:not(.peek) .hero { --up: var(--text-2); --down: var(--text-2); }
-/* 近期事件的「還有幾天」不是金額，不用模糊 */
-:root.calm:not(.peek) section[data-panel="overview"] .ev-days { filter: none; }
+:root.calm:not(.peek) .wrap .num,
+:root.calm:not(.peek) .wrap .v,
+:root.calm:not(.peek) .wrap .chart-box,
+:root.calm:not(.peek) .wrap .legend b,
+:root.calm:not(.peek) .wrap .hbar-val,
+:root.calm:not(.peek) .wrap .x-chip,
+:root.calm:not(.peek) .wrap .heat td:not(.lbl),
+:root.calm:not(.peek) .wrap .stress-move,
+:root.calm:not(.peek) .wrap .x-money,
+:root.calm:not(.peek) .wrap .compare-note b,
+:root.calm:not(.peek) .wrap .pnl-total b,
+:root.calm:not(.peek) .wrap .pnl-notes,
+:root.calm:not(.peek) .alert-item .msg b { filter: blur(9px); user-select: none; pointer-events: none; }
+:root.calm:not(.peek) .wrap, :root.calm:not(.peek) .hero { --up: var(--text-2); --down: var(--text-2); }
+/* 不是金額的，不用模糊：天數、日期、代號 */
+:root.calm:not(.peek) .wrap .ev-days,
+:root.calm:not(.peek) #txBody td:first-child { filter: none; pointer-events: auto; }
 
 /* ---------- 近期事件 ---------- */
 .ev-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }

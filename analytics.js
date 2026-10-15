@@ -186,7 +186,7 @@ function renderProgress(c) {
   const twd = v => fx ? `≈ ${fmt(v * fx, 'TWD', { sign: true })}` : '';
   el('heroCalm').innerHTML = `<span class="muted">今年累積</span> <b class="num">${usd0(y.gain, { sign: true })}</b> <span class="muted num">（${pct(y.twr)}）</span>`;
   el('progressNote').textContent = `從 ${y.start.date} 收盤起算`;
-  const beat = (b, n) => b == null ? '' : `<div class="x-tile"><div class="k">對 ${n}</div><div class="v num">${pct(y.twr - b)}</div><div class="s">${n} 同期 ${pct(b)}</div></div>`;
+  const beat = (b, n) => b == null ? '' : `<div class="x-tile"><div class="k">對 ${n}</div><div class="v num">${pct(y.twr - b)}</div><div class="s">${n} 同期 <span class="x-money">${pct(b)}</span></div></div>`;
   box.innerHTML = `<div class="x-grid">
       <div class="x-tile"><div class="k">今年賺到的錢</div><div class="v num">${usd0(y.gain, { sign: true })}</div><div class="s"><span class="num">${twd(y.gain)}</span>・已扣除入金 <span class="num">${usd0(y.flows)}</span></div></div>
       <div class="x-tile"><div class="k">帳戶報酬率</div><div class="v num">${pct(y.twr)}</div><div class="s">時間加權${outsideAsFlow() ? '，帳外獲利當入金' : ''}</div></div>
@@ -494,7 +494,7 @@ function renderExposure(c, expo) {
       <div class="hbar-track"><i class="${g.total >= 0 ? '' : 'neg'}" style="left:0;width:${w}%"></i><span class="ref" style="left:${eq / max * 100}%" title="淨資產"></span></div>
       <div class="hbar-val num">${usd0(g.total)} <span class="x-sub">${pctPlain(share)} 淨資產</span></div>
       <div class="hbar-items">${g.items.map(i => `<span class="x-chip ${i.counted ? '' : 'off'}">${esc(i.label)} ${usd0(i.val)}</span>`).join('')}</div></div>`;
-  }).join('') + `<div class="x-note">曝險＝市值 × 槓桿倍數（買方選擇權用 delta 換算）。直線標記代表你的淨資產 ${usd0(eq)}，超過這條線代表在這個標的上已經用了槓桿。賣方選擇權列出來參考，不計入。</div>`;
+  }).join('') + `<div class="x-note">曝險＝市值 × 槓桿倍數（買方選擇權用 delta 換算）。直線標記代表你的淨資產 <span class="x-money">${usd0(eq)}</span>，超過這條線代表在這個標的上已經用了槓桿。賣方選擇權列出來參考，不計入。</div>`;
 }
 
 // ============ 壓力測試 ============
@@ -908,9 +908,9 @@ function renderFees() {
   const st = realizedStats(), realized = st.stock + st.option;
   const all = tot('stock') + tot('opt') + tot('int');
   box.innerHTML = `<div class="x-grid" style="margin-bottom:12px">
-      <div class="x-tile"><div class="k">總交易成本</div><div class="v num">${usd(all)}</div><div class="s">佔已實現損益 ${realized > 0 ? pctPlain(all / realized, 1) : '—'}</div></div>
-      <div class="x-tile"><div class="k">股票規費</div><div class="v num">${usd(tot('stock'))}</div><div class="s">${tot('n')} 筆，平均每筆 ${usd(tot('n') ? tot('stock') / tot('n') : 0)}</div></div>
-      <div class="x-tile"><div class="k">選擇權手續費</div><div class="v num">${usd(tot('opt'))}</div><div class="s">${tot('c')} 口，平均每口 ${usd(tot('c') ? tot('opt') / tot('c') : 0)}</div></div>
+      <div class="x-tile"><div class="k">總交易成本</div><div class="v num">${usd(all)}</div><div class="s">佔已實現損益 <span class="x-money">${realized > 0 ? pctPlain(all / realized, 1) : '—'}</span></div></div>
+      <div class="x-tile"><div class="k">股票規費</div><div class="v num">${usd(tot('stock'))}</div><div class="s">${tot('n')} 筆，平均每筆 <span class="x-money">${usd(tot('n') ? tot('stock') / tot('n') : 0)}</span></div></div>
+      <div class="x-tile"><div class="k">選擇權手續費</div><div class="v num">${usd(tot('opt'))}</div><div class="s">${tot('c')} 口，平均每口 <span class="x-money">${usd(tot('c') ? tot('opt') / tot('c') : 0)}</span></div></div>
       <div class="x-tile"><div class="k">融資利息</div><div class="v num">${usd(tot('int'))}</div><div class="s">${tot('int') ? '' : '紀錄中沒有'}</div></div>
     </div>
     <div class="table-wrap" style="margin:0"><table class="x-table"><thead><tr><th class="l">月份</th><th>股票（筆）</th><th>股票規費</th><th>選擇權（口）</th><th>選擇權手續費</th><th>合計</th></tr></thead>

@@ -194,7 +194,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
         <div class="hero-sub num">
           <span id="heroDay"></span>
           <span id="heroCalm"></span>
-          <span id="calmMsg">數字先收起來了。想看的時候按右邊的「👁 看一下」。</span>
+          <span id="calmMsg">所有金額和漲跌都先收起來了。想看的時候按右邊的「👁 看一下」。</span>
         </div>
       </div>
       <div>
@@ -848,14 +848,14 @@ function renderTx() {
   $('#txBody').innerHTML = shown.length ? shown.map(t => {
     let content = '', amount = '';
     switch (t.type) {
-      case 'buy': content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ ${fmt(t.price)}`; amount = t.fromCash ? `<span class="muted">${fmt(-t.total, 'USD')}</span>` : `<span class="muted">${fmt(t.total)}</span>`; break;
-      case 'sell': { const r = st.perSell[t.id]; content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ ${fmt(t.price)}`; amount = fmt(t.total, 'USD', { sign: true }) + (r != null ? `<br><span style="font-size:12px" class="${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>` : ''); break; }
+      case 'buy': content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ <span class="x-money">${fmt(t.price)}</span>`; amount = t.fromCash ? `<span class="muted">${fmt(-t.total, 'USD')}</span>` : `<span class="muted">${fmt(t.total)}</span>`; break;
+      case 'sell': { const r = st.perSell[t.id]; content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ <span class="x-money">${fmt(t.price)}</span>`; amount = fmt(t.total, 'USD', { sign: true }) + (r != null ? `<br><span style="font-size:12px" class="${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>` : ''); break; }
       case 'income': content = (t.category === '帳外獲利' ? '帳外獲利 <span class="muted" style="font-size:12px">（計入獲利，不算入金）</span>' : esc(t.category || '收入'))
           + (/^(入金|帳外獲利)/.test(t.category || '')
           ? ` <button class="ghost" style="font-size:11px;padding:1px 6px;color:var(--text-3)" data-reclass="${t.id}" title="${t.category === '帳外獲利' ? '改回入金：這筆是自己存進來的錢' : '如果這筆其實是在別處投資賺到、轉進來的錢，按這裡把它算成獲利'}">${t.category === '帳外獲利' ? '↺ 改回入金' : '↺ 改成帳外獲利'}</button>` : ''); amount = `<span class="up">${fmt(t.amount, t.currency, { sign: true })}</span>`; break;
       case 'expense': content = esc(t.category || '支出'); amount = `<span class="down">${fmt(-t.amount, t.currency, { sign: true })}</span>`; break;
       case 'fx': content = `${fmt(t.fromAmount, t.from)} → ${fmt(t.toAmount, t.to)}`; amount = `<span class="muted">匯率 ${(t.from === 'TWD' ? t.fromAmount / t.toAmount : t.toAmount / t.fromAmount).toFixed(3)}</span>`; break;
-      case 'adjust': content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.before.shares)} → ${fmtShares(t.after.shares)} 股，成本 ${fmt(t.before.cost)} → ${fmt(t.after.cost)}`; break;
+      case 'adjust': content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.before.shares)} → ${fmtShares(t.after.shares)} 股，成本 <span class="x-money">${fmt(t.before.cost)} → ${fmt(t.after.cost)}</span>`; break;
       case 'option': {
         const r = st.perOpt[t.id];
         content = esc([t.action ? t.action.toUpperCase() : '', t.qty > 0 ? 'BUY' : t.qty < 0 ? 'SELL' : '', optName(t.symbol, t.desc)].filter(Boolean).join(' '));
@@ -868,7 +868,7 @@ function renderTx() {
         content = esc(`EXPIRE ${optName(t.symbol, t.desc)}`) + ` <span class="muted">${fmtShares(Math.abs(t.qty))} 口</span>`;
         amount = `<span class="muted">$0.00</span><br><span style="font-size:12px" class="${cls(t.realized)}">已實現 ${fmt(t.realized, 'USD', { sign: true })}</span>`;
         break;
-      case 'cashAdjust': content = `${t.currency} 現金 ${fmt(t.before, t.currency)} → ${fmt(t.after, t.currency)}`; break;
+      case 'cashAdjust': content = `${t.currency} 現金 <span class="x-money">${fmt(t.before, t.currency)} → ${fmt(t.after, t.currency)}</span>`; break;
     }
     return `<tr>
       <td class="num">${t.date}</td>
