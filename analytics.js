@@ -1,6 +1,6 @@
 // 分析功能：分頁、警示、隱私模式、平靜模式、今年的進度、近期事件、今日損益貢獻、風險報酬指標、回撤、每月報酬、
 // 依標的曝險、壓力測試、下單前檢查、選擇權部位風險、交易日記、交易分析、每月已實現損益、交易成本。
-// 只讀取 index.html 的資料與函式（data、calc、realizedStats…），只會寫入警示設定和交易日記。
+// 只讀取 index.html 的資料與函式（data、calc、realizedStats…），只會寫入警示設定、交易日記、部位計畫和交易規則。
 // 全部包在函式裡，避免跟 index.html 的全域變數撞名；對外只公開 window.renderExtras。
 (() => {
 'use strict';
@@ -267,6 +267,14 @@ function computeAlerts(c, expo) {
     for (const r of rets) { idx *= 1 + r.r; top = Math.max(top, idx); }
     const dd = idx / top - 1;
     if (-dd * 100 > a.dd) out.push({ lvl: 'danger', tag: '回撤', msg: `目前距離高點 <b>${pct(dd)}</b>，超過你設定的 ${a.dd}%` });
+  }
+  // 部位計畫：到停損、到目標、到檢討日
+  for (const pos of positionsForPlans(c)) {
+    const p = planOf(pos.sym); if (!p) continue;
+    const st = planStatus(p, pos), name = esc(pos.label), hide = isCalm();
+    if (st.out.includes('stop')) out.push({ lvl: 'danger', tag: '計畫', msg: `${name} 已經到了你設定的停損${hide ? '' : `（<b>${usd(p.stop)}</b>）`}。照計畫執行，不用重新說服自己。` });
+    if (st.out.includes('target')) out.push({ lvl: 'calm', tag: '計畫', msg: `${name} 到了你設定的目標${hide ? '' : `（<b>${usd(p.target)}</b>）`}，照計畫考慮獲利了結。` });
+    if (st.out.includes('review')) out.push({ lvl: 'calm', tag: '計畫', msg: `${name} 到了你設定的檢討日：你當初的理由還成立嗎？` });
   }
   // 冷靜期：大跌的當天、或選擇權虧很多時，提醒先不要開新部位
   const base = c.totalUSD - c.day, dayPct = base > 0 ? c.day / base : 0;
@@ -607,7 +615,7 @@ function renderCheck(c) {
         <label class="ck-field">Delta（選填） <input type="number" step="0.01" data-ck="delta"></label>
         <label class="ck-field">最多投入淨資產 <input type="number" step="0.5" min="0" data-ck="optPct"> %</label></div>
       <div id="ckOut"></div>
-      <div class="ck-list">${CHECK_ITEMS.map((t, i) => `<label><input type="checkbox" data-ck-item="${i}"> ${t}</label>`).join('')}</div>
+      <div class="ck-list" id="ckList"></div>
       <div id="ckVerdict"></div></div>`;
     box.querySelector('[data-ck="risk"]').value = ck.risk;
     box.querySelector('[data-ck="optPct"]').value = ck.optPct;
@@ -638,10 +646,184 @@ function renderCheck(c) {
       ${qty === 0 ? '<div class="x-note">預算連一口都買不起：這筆對你的資產規模來說太大了。</div>' : ''}`;
   }
   el('ckOut').innerHTML = out;
-  const done = ck.checks.size;
-  el('ckVerdict').innerHTML = done === CHECK_ITEMS.length
+  // 檢查清單：固定的 5 項＋你自己啟用中的規則
+  const items = CHECK_ITEMS.map((t, i) => ['b' + i, t]).concat(activeRules().map(r => ['r' + r.id, '規則：' + ruleText(r)]));
+  const key = items.map(x => x[0]).join(',');
+  if (el('ckList').dataset.key !== key) {
+    el('ckList').dataset.key = key;
+    el('ckList').innerHTML = items.map(([id, t]) => `<label><input type="checkbox" data-ck-item="${id}" ${ck.checks.has(id) ? 'checked' : ''}> ${esc(t)}</label>`).join('');
+  }
+  const done = items.filter(([id]) => ck.checks.has(id)).length;
+  el('ckVerdict').innerHTML = done === items.length
     ? '<div class="ck-ok">✓ 都確認了。照你算好的數量和停損下單，然後就交給計畫。</div>'
-    : `<div class="x-note">還有 ${CHECK_ITEMS.length - done} 項沒有勾。有任何一項勾不下去，這筆可以先等等，機會永遠都有。</div>`;
+    : `<div class="x-note">還有 ${items.length - done} 項沒有勾。有任何一項勾不下去，這筆可以先等等，機會永遠都有。</div>`;
+}
+
+// ============ 部位計畫：理由、停損、目標、檢討日 ============
+let planEdit = null;   // 正在編輯的部位代號
+const planOf = sym => (data.plans || []).find(p => p.sym === sym && p.status !== 'closed');
+function positionsForPlans(c) {
+  return [...c.rows.map(r => ({ sym: r.sym, kind: 'stock', qty: r.shares, label: r.sym })),
+          ...c.optRows.map(o => ({ sym: o.sym, kind: 'option', qty: o.qty, label: optName(o.sym) }))];
+}
+// 看多的部位：停損在下、目標在上；看空的（反向 ETF、買 put、賣 call）相反
+function isBullish(pos) {
+  if (pos.kind === 'stock') return levOf(pos.sym) >= 0;
+  const oc = occ(pos.sym);
+  return oc.call ? pos.qty > 0 : pos.qty < 0;
+}
+function planPrice(plan, pos) {
+  if (pos.kind === 'stock') return quotes[pos.sym]?.price ?? null;
+  return plan.basis === 'option' ? (optQuotes[pos.sym]?.mark ?? null) : (quotes[occ(pos.sym).root]?.price ?? null);
+}
+function planStatus(plan, pos) {
+  const px = planPrice(plan, pos), bull = isBullish(pos), out = [];
+  if (px != null && plan.stop > 0 && (bull ? px <= plan.stop : px >= plan.stop)) out.push('stop');
+  if (px != null && plan.target > 0 && (bull ? px >= plan.target : px <= plan.target)) out.push('target');
+  if (plan.review && plan.review <= today()) out.push('review');
+  return { px, out };
+}
+function renderPlans(c) {
+  const box = el('plansBox'); if (!box) return;
+  if (box.contains(document.activeElement) && document.activeElement.matches('input, textarea, select')) return;   // 正在輸入時不要重畫
+  const pos = positionsForPlans(c);
+  const closed = (data.plans || []).filter(p => p.status === 'closed' || !pos.some(x => x.sym === p.sym)).sort((a, b) => b.ts - a.ts);
+  const basisName = (p, x) => x.kind === 'stock' ? x.sym : p.basis === 'option' ? '選擇權價格' : `標的 ${occ(x.sym).root}`;
+  const rows = pos.map(x => {
+    const p = planOf(x.sym), editing = planEdit === x.sym;
+    let body;
+    if (editing) {
+      body = `<div class="plan-form">
+        <label class="plan-wide">為什麼買？（理由、看好什麼）<textarea data-pf="thesis" rows="2">${esc(p?.thesis || '')}</textarea></label>
+        ${x.kind === 'option' ? `<label>停損、目標依據 <select data-pf="basis"><option value="underlying" ${p?.basis !== 'option' ? 'selected' : ''}>標的股價（${occ(x.sym).root}）</option><option value="option" ${p?.basis === 'option' ? 'selected' : ''}>選擇權價格</option></select></label>` : ''}
+        <label>停損價 <input type="number" step="any" data-pf="stop" value="${p?.stop ?? ''}"></label>
+        <label>目標價 <input type="number" step="any" data-pf="target" value="${p?.target ?? ''}"></label>
+        <label>檢討日 <input type="date" data-pf="review" value="${p?.review ?? ''}"></label>
+        <div class="plan-wide plan-actions"><button class="primary" data-plan-save="${esc(x.sym)}">儲存計畫</button><button data-plan-cancel="1">取消</button>
+          ${p ? `<button class="ghost danger" data-plan-close="${esc(x.sym)}">結束這個計畫</button>` : ''}</div></div>`;
+    } else if (p) {
+      const st = planStatus(p, x), dir = isBullish(x) ? 1 : -1;
+      const dist = v => st.px && v ? pct((v / st.px - 1)) : '—';
+      const flags = st.out.map(f => f === 'stop' ? '<span class="x-badge danger">到停損了</span>' : f === 'target' ? '<span class="x-badge good">到目標了</span>' : '<span class="x-badge">該檢討了</span>').join(' ');
+      body = `<div class="plan-view">
+        ${p.thesis ? `<div class="plan-thesis">「${esc(p.thesis)}」</div>` : ''}
+        <div class="plan-meta">${p.stop ? `停損 ${usd(p.stop)} <span class="x-money">（距離 ${dist(p.stop)}）</span>` : '沒有設停損'}
+          ・${p.target ? `目標 ${usd(p.target)} <span class="x-money">（距離 ${dist(p.target)}）</span>` : '沒有設目標'}
+          ${p.review ? `・檢討日 ${p.review}` : ''}・依據 ${esc(basisName(p, x))}・${dir > 0 ? '看多' : '看空'}部位</div>
+        ${flags ? `<div style="margin-top:4px">${flags}</div>` : ''}
+        <div class="plan-actions"><button class="ghost" data-plan-edit="${esc(x.sym)}">編輯</button></div></div>`;
+    } else {
+      body = `<div class="plan-view"><span class="muted">還沒有計畫。</span><button class="ghost" data-plan-edit="${esc(x.sym)}">＋ 寫計畫</button></div>`;
+    }
+    return `<div class="plan-row"><div class="plan-name"><b>${esc(x.label)}</b><span class="x-sub">${x.kind === 'stock' ? '股票' : x.qty > 0 ? '買方' : '賣方'}</span></div>${body}</div>`;
+  }).join('');
+  box.innerHTML = (rows || '<div class="x-empty">目前沒有持股</div>') +
+    (closed.length ? `<details class="x-details" style="margin-top:10px"><summary>已結束的計畫（${closed.length}）</summary>${closed.map(p => `<div class="plan-row done">
+      <div class="plan-name"><b>${esc(p.label || p.sym)}</b><span class="x-sub">${new Date(p.ts).toISOString().slice(0, 10)} 建立${p.closedAt ? `・${p.closedAt} 結束` : ''}</span></div>
+      <div class="plan-view">${p.thesis ? `<div class="plan-thesis">「${esc(p.thesis)}」</div>` : ''}<div class="plan-meta">停損 ${p.stop ? usd(p.stop) : '—'}・目標 ${p.target ? usd(p.target) : '—'}</div>
+        <div class="plan-actions"><button class="ghost danger" data-plan-del="${p.id}">刪除</button></div></div></div>`).join('')}</details>` : '') +
+    '<div class="x-note">碰到停損、到達目標或到了檢討日，頁面上方會提醒你。停損是事先跟自己的約定：到了就照著做，不用重新說服自己。</div>';
+}
+function savePlan(sym) {
+  const box = el('plansBox'), v = k => box.querySelector(`[data-pf="${k}"]`)?.value ?? '';
+  const pos = positionsForPlans(calc()).find(x => x.sym === sym);
+  const old = planOf(sym);
+  const plan = { id: old?.id || uid(), ts: old?.ts || Date.now(), sym, label: pos?.label || sym, status: 'active',
+                 thesis: v('thesis').trim(), basis: v('basis') || 'underlying',
+                 stop: parseFloat(v('stop')) || null, target: parseFloat(v('target')) || null, review: v('review') || null };
+  data.plans = [...(data.plans || []).filter(p => p !== old), plan];
+  planEdit = null; save(); renderPlans(calc()); window.renderExtras(); toast('計畫存好了');
+}
+
+// ============ 我的交易規則 ============
+const RULE_TYPES = {
+  optSize: { p: 5, text: p => `單筆選擇權最多投入淨資產 ${p}%`, unit: '%' },
+  lev: { p: 2, text: p => `槓桿率不超過 ${p} 倍`, unit: '倍' },
+  lossDay: { p: 2.5, text: p => `單日跌幅超過 ${p}% 的當天和隔天，不開新倉`, unit: '%' },
+  noDayTrade: { text: () => '不做當天沖銷（股票、選擇權都是）' },
+  minDte: { p: 8, text: p => `選擇權只做 ${p} 天以上到期的合約`, unit: '天' },
+  journal: { text: () => '有交易的日子就寫一篇日記' },
+  custom: { text: (p, r) => r.text },
+};
+const ruleText = r => RULE_TYPES[r.type]?.text(r.p, r) || r.text || '';
+const activeRules = () => (data.rules || []).filter(r => r.on !== false);
+function ruleContext() {
+  // 檢查規則要用到的資料：每天報酬、每天收盤淨資產、開倉紀錄
+  const hist = data.history, rets = dailyReturns(hist), retOn = Object.fromEntries(rets.map(x => [x.date, x.r]));
+  const dates = hist.map(h => h.date), prevOf = {};
+  dates.forEach((d, i) => { if (i) prevOf[d] = dates[i - 1]; });
+  const eqBefore = d => { let v = null; for (const h of hist) { if (h.date < d) v = h.usd; else break; } return v; };
+  const opens = [];
+  for (const t of data.transactions) {
+    if (t.type === 'buy' && t.note !== '股息再投入') opens.push({ date: t.date, kind: 'stock', sym: t.symbol, label: `買 ${t.symbol}` });
+    else if (t.type === 'option' && t.action === 'open') opens.push({ date: t.date, kind: 'option', sym: t.symbol, qty: t.qty, amount: t.amount, label: `${t.qty > 0 ? '買' : '賣'} ${optName(t.symbol)}` });
+  }
+  return { hist, retOn, prevOf, eqBefore, opens };
+}
+function checkRule(r, ctx, c) {
+  const y = String(new Date().getFullYear()), since = d => d.startsWith(y);
+  const res = { now: null, total: 0, bad: [] };   // now：目前是否違反（null 代表不適用）
+  if (r.type === 'optSize') {
+    const groups = {};
+    for (const o of ctx.opens) if (o.kind === 'option' && o.qty > 0 && since(o.date)) { const k = o.date + o.sym; (groups[k] ??= { ...o, cost: 0 }).cost += -o.amount; }
+    for (const g of Object.values(groups)) {
+      const eq = ctx.eqBefore(g.date); if (!eq) continue;
+      res.total++; if (g.cost / eq * 100 > r.p) res.bad.push({ date: g.date, what: `${g.label}：投入淨資產 ${pctPlain(g.cost / eq, 1)}` });
+    }
+    res.now = c.optRows.some(o => o.qty > 0 && o.value / c.totalUSD * 100 > r.p);
+  } else if (r.type === 'lev') {
+    for (const h of ctx.hist) if (since(h.date) && h.exp != null && h.usd > 0) { res.total++; if (h.exp / h.usd > r.p) res.bad.push({ date: h.date, what: `收盤槓桿率 ${(h.exp / h.usd).toFixed(2)}x` }); }
+    res.now = c.leverage != null && c.leverage > r.p;
+  } else if (r.type === 'lossDay') {
+    const days = [...new Set(ctx.opens.filter(o => since(o.date)).map(o => o.date))];
+    for (const d of days) {
+      res.total++;
+      const today_ = ctx.retOn[d], prev = ctx.retOn[ctx.prevOf[d]];
+      if ((today_ != null && today_ * 100 <= -r.p) || (prev != null && prev * 100 <= -r.p))
+        res.bad.push({ date: d, what: `${today_ != null && today_ * 100 <= -r.p ? '當天' : '前一天'}帳戶跌 <span class="x-money">${pct(today_ != null && today_ * 100 <= -r.p ? today_ : prev)}</span>，仍開了新倉（${ctx.opens.filter(o => o.date === d).map(o => o.label).slice(0, 3).join('、')}）` });
+    }
+    const base = c.totalUSD - c.day; res.now = base > 0 && c.day / base * 100 <= -r.p;
+  } else if (r.type === 'noDayTrade') {
+    const st = realizedStats();
+    const ev = stockHoldingEvents(st).map(e => ({ ...e, k: '股票' })).concat(optionLifeEvents(st).map(e => ({ ...e, k: '選擇權' }))).filter(e => since(e.date));
+    for (const e of ev) { res.total++; if (e.hold < 0.5) res.bad.push({ date: e.date, what: `${e.k} ${e.k === '股票' ? e.sym : optName(e.sym)} 當天買賣` }); }
+  } else if (r.type === 'minDte') {
+    for (const o of ctx.opens) if (o.kind === 'option' && since(o.date)) {
+      const dte = days(o.date, occ(o.sym).exp); res.total++;
+      if (dte < r.p) res.bad.push({ date: o.date, what: `${o.label}：開倉時只剩 ${dte} 天到期` });
+    }
+  } else if (r.type === 'journal') {
+    const start = new Date(r.ts || Date.now()).toISOString().slice(0, 10), written = new Set((data.journal || []).map(j => j.date));
+    for (const d of [...new Set(ctx.opens.map(o => o.date))].filter(d => d >= start)) { res.total++; if (!written.has(d)) res.bad.push({ date: d, what: '有交易但沒寫日記' }); }
+  } else return null;   // 自訂規則不自動檢查
+  res.bad.sort((a, b) => b.date.localeCompare(a.date));
+  return res;
+}
+function renderRules(c) {
+  const box = el('rulesBox'); if (!box) return;
+  if (box.contains(document.activeElement) && document.activeElement.matches('input')) return;
+  const rules = data.rules || [], ctx = ruleContext();
+  const results = rules.map(r => ({ r, res: r.on === false ? null : checkRule(r, ctx, c) }));
+  const breaking = results.filter(x => x.res?.now).length;
+  el('rulesNote').textContent = rules.length ? (breaking ? `${breaking} 條規則目前違反中` : '目前都有遵守') : '';
+  const list = results.map(({ r, res }) => {
+    const rate = res && res.total ? 1 - res.bad.length / res.total : null;
+    return `<div class="rule-row ${r.on === false ? 'off' : ''}">
+      <div class="rule-main"><b>${esc(ruleText(r))}</b>
+        <span class="x-sub">${r.on === false ? '已停用' : res == null ? '自訂規則：下單前檢查時會列出來提醒你' :
+          `${res.now === true ? '<span class="x-badge danger">目前違反中</span> ' : res.now === false ? '<span class="x-badge good">目前有遵守</span> ' : ''}今年遵守率 <b>${rate == null ? '—' : pctPlain(rate)}</b>（${res.total} 次裡有 ${res.bad.length} 次違反）`}</span>
+        ${res && res.bad.length ? `<details class="x-details"><summary>看違反的紀錄</summary>${res.bad.slice(0, 30).map(b => `<div class="rule-bad"><span>${b.date}</span> ${esc(b.what).replace(/&lt;span class=&quot;x-money&quot;&gt;(.*?)&lt;\/span&gt;/g, '<span class="x-money">$1</span>')}</div>`).join('')}${res.bad.length > 30 ? '<div class="x-sub">…只列最近 30 筆</div>' : ''}</details>` : ''}</div>
+      <div class="rule-actions"><button class="ghost" data-rule-toggle="${r.id}">${r.on === false ? '啟用' : '停用'}</button><button class="ghost danger" data-rule-del="${r.id}">✕</button></div></div>`;
+  }).join('');
+  const have = new Set(rules.map(r => r.type));
+  const templates = Object.entries(RULE_TYPES).filter(([t]) => t !== 'custom' && !have.has(t));
+  box.innerHTML = (list || '<div class="x-empty">還沒有規則。從下面挑幾條，或寫一條你自己的。</div>') + `
+    <div class="rule-add">
+      ${templates.length ? `<div class="x-sub" style="margin-bottom:6px">從範本加入（數字可以改）：</div>
+        ${templates.map(([t, d]) => `<div class="rule-tpl"><span>${d.unit ? d.text('<input type="number" step="any" data-rule-p="' + t + '" value="' + d.p + '">') : d.text()}</span><button data-rule-add="${t}">＋ 加入</button></div>`).join('')}` : ''}
+      <div class="rule-tpl"><input id="ruleCustom" placeholder="自訂規則，例如：財報前不買短天期 call"><button data-rule-add="custom">＋ 加入</button></div>
+    </div>
+    <div class="x-note">遵守率是用你今年的交易紀錄回頭檢查的。「有交易就寫日記」從加入規則那天開始算。你的規則也會出現在下單前檢查的清單裡。</div>`;
 }
 
 // ============ 選擇權部位風險 ============
@@ -927,9 +1109,9 @@ window.renderExtras = function renderExtras(c) {
   const expo = exposureGroups(c);
   renderAlertBar(computeAlerts(c, expo));
   const safe = (name, fn) => { try { fn(); } catch (err) { console.error(name, err); const b = el(name); if (b) b.innerHTML = `<div class="x-empty">這個區塊出錯了：${esc(err.message)}</div>`; } };
-  if (curTab === 'overview') { safe('contribBox', () => renderContrib(c)); safe('eventsBox', () => renderEvents(c)); }
+  if (curTab === 'overview') { safe('contribBox', () => renderContrib(c)); safe('plansBox', () => renderPlans(c)); safe('eventsBox', () => renderEvents(c)); }
   if (curTab === 'perf') { safe('metricsBox', renderMetrics); safe('heatBox', renderHeat); }
-  if (curTab === 'risk') { safe('exposureBox', () => renderExposure(c, expo)); safe('stressBox', () => renderStress(c)); safe('optRiskBox', () => renderOptRisk(c)); safe('checkBox', () => renderCheck(c)); safe('alertSettings', renderAlertSettings); }
+  if (curTab === 'risk') { safe('exposureBox', () => renderExposure(c, expo)); safe('stressBox', () => renderStress(c)); safe('optRiskBox', () => renderOptRisk(c)); safe('checkBox', () => renderCheck(c)); safe('rulesBox', () => renderRules(c)); safe('alertSettings', renderAlertSettings); }
   if (curTab === 'trade') { safe('journalBox', renderJournal); safe('analysisBox', renderAnalysis); safe('monthlyBox', renderMonthly); safe('feeBox', renderFees); }
 };
 
@@ -942,6 +1124,32 @@ document.addEventListener('click', e => {
   else if (b.id === 'peekBtn') peek(!document.documentElement.classList.contains('peek'));
   else if (b.dataset.ckType) { ck.type = b.dataset.ckType; store.set('ck.type', ck.type); renderCheck(calc()); }
   else if (b.dataset.mood) { jMood = b.dataset.mood; renderJournal(); }
+  else if (b.dataset.planEdit) { planEdit = b.dataset.planEdit; renderPlans(calc()); el('plansBox').querySelector('[data-pf="thesis"]')?.focus(); }
+  else if (b.dataset.planCancel) { planEdit = null; renderPlans(calc()); }
+  else if (b.dataset.planSave) savePlan(b.dataset.planSave);
+  else if (b.dataset.planClose) {
+    const p = planOf(b.dataset.planClose);
+    if (p) { p.status = 'closed'; p.closedAt = today(); }
+    planEdit = null; save(); renderPlans(calc()); window.renderExtras();
+  }
+  else if (b.dataset.planDel) {
+    if (!b.dataset.confirm) { b.dataset.confirm = '1'; b.textContent = '確定刪除？'; setTimeout(() => { if (b.isConnected) { delete b.dataset.confirm; b.textContent = '刪除'; } }, 3000); return; }
+    data.plans = (data.plans || []).filter(p => p.id !== b.dataset.planDel); save(); renderPlans(calc());
+  }
+  else if (b.dataset.ruleAdd) {
+    const t = b.dataset.ruleAdd, r = { id: uid(), ts: Date.now(), type: t, on: true };
+    if (t === 'custom') { r.text = el('ruleCustom').value.trim(); if (!r.text) { el('ruleCustom').focus(); return; } }
+    else if (RULE_TYPES[t].unit) r.p = parseFloat(document.querySelector(`[data-rule-p="${t}"]`)?.value) || RULE_TYPES[t].p;
+    data.rules = [...(data.rules || []), r]; save(); renderRules(calc()); renderCheck(calc()); toast('規則加好了');
+  }
+  else if (b.dataset.ruleToggle) {
+    const r = (data.rules || []).find(x => x.id === b.dataset.ruleToggle); if (r) r.on = r.on === false;
+    save(); renderRules(calc()); renderCheck(calc());
+  }
+  else if (b.dataset.ruleDel) {
+    if (!b.dataset.confirm) { b.dataset.confirm = '1'; b.textContent = '確定刪除？'; setTimeout(() => { if (b.isConnected) { delete b.dataset.confirm; b.textContent = '✕'; } }, 3000); return; }
+    data.rules = (data.rules || []).filter(r => r.id !== b.dataset.ruleDel); save(); renderRules(calc()); renderCheck(calc());
+  }
   else if (b.id === 'jSave') {
     const text = el('jText').value.trim();
     if (!text) { el('jText').focus(); return; }

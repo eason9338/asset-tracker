@@ -172,3 +172,31 @@ details.x-details > summary { cursor: pointer; font-size: 13px; color: var(--tex
 
 /* ---------- 冷靜提醒 ---------- */
 .alert-item.calm { border-left-color: var(--accent); }
+
+/* ---------- 部位計畫 ---------- */
+.plan-row { display: grid; grid-template-columns: minmax(120px, 200px) 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.plan-row:last-child { border-bottom: 0; }
+.plan-row.done { opacity: .75; }
+.plan-name { font-size: 13px; }
+.plan-thesis { font-size: 14px; line-height: 1.6; }
+.plan-meta { font-size: 12px; color: var(--text-2); margin-top: 2px; line-height: 1.6; }
+.plan-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.plan-view { min-width: 0; }
+.plan-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 12px; }
+.plan-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); }
+.plan-form .plan-wide { grid-column: 1 / -1; }
+.plan-form input, .plan-form select, .plan-form textarea { padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); font: inherit; color: inherit; }
+@media (max-width: 600px) { .plan-row { grid-template-columns: 1fr; gap: 4px; } }
+
+/* ---------- 我的交易規則 ---------- */
+.rule-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.rule-row.off { opacity: .55; }
+.rule-main { flex: 1; min-width: 0; font-size: 14px; }
+.rule-main .x-sub { margin-top: 3px; line-height: 1.6; }
+.rule-actions { display: flex; gap: 2px; white-space: nowrap; }
+.rule-bad { font-size: 12px; color: var(--text-2); padding: 3px 0; }
+.rule-bad span { color: var(--text-3); margin-right: 6px; }
+.rule-add { margin-top: 12px; padding: 12px; background: var(--surface-2); border-radius: 10px; }
+.rule-tpl { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; font-size: 13px; }
+.rule-tpl input { width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); text-align: right; }
+.rule-tpl #ruleCustom { flex: 1; width: auto; text-align: left; padding: 6px 8px; }
