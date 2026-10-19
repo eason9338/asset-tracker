@@ -123,18 +123,23 @@ function lineChart(box, pts, { fmtY, fmtTip, color = 'var(--accent)', zero = fal
   hit.addEventListener('pointerleave', () => { cx.setAttribute('visibility', 'hidden'); cd.setAttribute('visibility', 'hidden'); tip.hidden = true; });
 }
 
-// ============ 分頁 ============
+// ============ 分頁：每個分頁有自己的網址 ============
 const TABS = ['overview', 'perf', 'risk', 'trade'];
-let curTab = (location.hash || '').slice(1);
-if (!TABS.includes(curTab)) curTab = store.get('tab', 'overview');
-if (!TABS.includes(curTab)) curTab = 'overview';
+const TAB_PATH = { overview: '/overview', perf: '/performance', risk: '/risk', trade: '/trades' };
+const TAB_TITLE = { overview: '總覽', perf: '績效', risk: '風險', trade: '交易' };
+const tabOfPath = () => TABS.find(t => TAB_PATH[t] === location.pathname) || (TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'overview');
+let curTab = tabOfPath();
+if (location.pathname !== TAB_PATH[curTab] && location.pathname !== '/') history.replaceState(null, '', TAB_PATH[curTab]);
+else if (location.hash) history.replaceState(null, '', TAB_PATH[curTab]);
 function applyTab() {
   document.querySelectorAll('section[data-panel]').forEach(s => { s.hidden = s.dataset.panel !== curTab; });
-  document.querySelectorAll('#tabNav button').forEach(b => b.classList.toggle('on', b.dataset.tab === curTab));
+  document.querySelectorAll('#tabNav [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === curTab));
+  document.title = `${TAB_TITLE[curTab]}・我的資產`;
 }
-function showTab(t) {
+function showTab(t, push = true) {
   if (!TABS.includes(t)) return;
-  curTab = t; store.set('tab', t); applyTab();
+  if (push && t !== curTab) history.pushState(null, '', TAB_PATH[t]);
+  curTab = t; applyTab(); window.scrollTo(0, 0);
   if (data) render();   // 圖表在隱藏時量不到寬度，切過來要重畫
 }
 applyTab();
@@ -252,14 +257,10 @@ function renderEvents(c) {
 // ============ 警示 ============
 const ALERT_DEFAULTS = { on: true, lev: 2, single: 200, dd: 15, dte: 3, optMax: 10, cool: true, coolPct: 2.5, notify: false };
 const alertCfg = () => ({ ...ALERT_DEFAULTS, ...(data?.settings?.alerts || {}) });
-function computeAlerts(c, expo) {
+function computeAlerts(c) {
   const a = alertCfg(), out = [];
   if (!a.on || !c) return out;
   if (c.leverage != null && c.leverage > a.lev) out.push({ lvl: 'danger', tag: '槓桿', msg: `槓桿率 <b>${c.leverage.toFixed(2)}x</b>，超過你設定的上限 ${a.lev}x` });
-  for (const g of expo.groups) {
-    const share = g.total / c.totalUSD;
-    if (share * 100 > a.single) out.push({ lvl: 'warn', tag: '集中', msg: `${esc(grpName(g.g))} 曝險 <b>${pctPlain(share)}</b> 淨資產，超過上限 ${a.single}%` });
-  }
   const peak = Math.max(...data.history.map(h => h.usd));
   if (peak > 0 && c.totalUSD < peak) {
     // 回撤以時間加權指數計算，避免出金被當成下跌
@@ -268,14 +269,18 @@ function computeAlerts(c, expo) {
     const dd = idx / top - 1;
     if (-dd * 100 > a.dd) out.push({ lvl: 'danger', tag: '回撤', msg: `目前距離高點 <b>${pct(dd)}</b>，超過你設定的 ${a.dd}%` });
   }
-  // 部位計畫：到停損、到目標、到檢討日
-  for (const pos of positionsForPlans(c)) {
-    const p = planOf(pos.sym); if (!p) continue;
-    const st = planStatus(p, pos), name = esc(pos.label), hide = isCalm();
-    if (st.out.includes('stop')) out.push({ lvl: 'danger', tag: '計畫', msg: `${name} 已經到了你設定的停損${hide ? '' : `（<b>${usd(p.stop)}</b>）`}。照計畫執行，不用重新說服自己。` });
-    if (st.out.includes('target')) out.push({ lvl: 'calm', tag: '計畫', msg: `${name} 到了你設定的目標${hide ? '' : `（<b>${usd(p.target)}</b>）`}，照計畫考慮獲利了結。` });
-    if (st.out.includes('review')) out.push({ lvl: 'calm', tag: '計畫', msg: `${name} 到了你設定的檢討日：你當初的理由還成立嗎？` });
+  // 交易計畫：今天可以執行、到停損、到目標
+  for (const p of (data.plans || []).filter(p => p.created && ['waiting', 'ready'].includes(planState(p)))) {
+    const name = `${PLAN_ACTIONS[p.action] || ''} ${esc(p.sym)}`, hide = isCalm(), px = quotes[p.sym]?.price;
+    if (planExec(p) === today()) out.push({ lvl: 'calm', tag: '計畫', msg: `「${name}」的計畫今天起可以執行了：條件還成立就照計畫做，不成立就作廢。` });
+    if (px != null && p.stop && px <= p.stop) out.push({ lvl: 'danger', tag: '計畫', msg: `${esc(p.sym)} 到了你計畫裡的停損${hide ? '' : `（<b>${usd(p.stop)}</b>）`}。照計畫執行，不用重新說服自己。` });
+    if (px != null && p.target && px >= p.target) out.push({ lvl: 'calm', tag: '計畫', msg: `${esc(p.sym)} 到了你計畫裡的目標${hide ? '' : `（<b>${usd(p.target)}</b>）`}，照計畫處理。` });
   }
+  // 我的守則
+  for (const r of c.rows.filter(x => isBannedLev(x.sym))) out.push({ lvl: 'danger', tag: '守則 3', msg: `持有個股型槓桿 ETF ${esc(r.sym)}：照守則不能持有` });
+  for (const g of capExposure(c).filter(x => x.pct * 100 > RULES.trim))
+    out.push({ lvl: 'danger', tag: '守則 3', msg: `${esc(grpName(g.g))} 佔總資產 <b>${pctPlain(g.pct)}</b>，超過 ${RULES.trim}%：照守則減碼回 ${RULES.cap}%${isCalm() ? '' : `（約 <b>${usd0(g.v - c.totalUSD * RULES.cap / 100)}</b>）`}` });
+  for (const o of c.optRows.filter(o => o.qty > 0)) out.push({ lvl: 'warn', tag: '守則 1', msg: `持有買方選擇權 ${esc(optName(o.sym))}：守則是不做買方` });
   // 冷靜期：大跌的當天、或選擇權虧很多時，提醒先不要開新部位
   const base = c.totalUSD - c.day, dayPct = base > 0 ? c.day / base : 0;
   if (a.cool && dayPct * 100 <= -a.coolPct)
@@ -303,60 +308,7 @@ function renderAlertBar(alerts) {
   bar.hidden = !show.length;
   bar.innerHTML = show.map(a => `<div class="alert-item ${a.lvl}"><span class="tag">${a.tag}</span><span class="msg">${a.msg}</span>
     <button class="ghost" data-dismiss="${esc(a.msg)}" title="今天不再顯示">✕</button></div>`).join('');
-  // 瀏覽器通知：同一則一天只通知一次
-  if (alertCfg().notify && 'Notification' in window && Notification.permission === 'granted') {
-    const nkey = 'notified.' + today(), sent = new Set((store.get(nkey, '') || '').split('|').filter(Boolean));
-    for (const a of show) {
-      const plain = a.msg.replace(/<[^>]+>/g, '');
-      if (sent.has(plain)) continue;
-      try { new Notification('資產警示：' + a.tag, { body: plain }); } catch { /* 有些瀏覽器不允許，就算了 */ }
-      sent.add(plain);
-    }
-    store.set(nkey, [...sent].join('|'));
-  }
 }
-function renderAlertSettings() {
-  const box = el('alertSettings'); if (!box) return;
-  if (box.contains(document.activeElement)) return;   // 正在輸入時不要重畫
-  const a = alertCfg();
-  box.innerHTML = `<div class="alert-form">
-    <label>啟用警示 <input type="checkbox" data-alert="on" ${a.on ? 'checked' : ''}></label>
-    <label>槓桿率超過 <span><input type="number" step="0.1" min="0" data-alert="lev" value="${a.lev}"> x</span></label>
-    <label>單一標的曝險超過淨資產 <span><input type="number" step="10" min="0" data-alert="single" value="${a.single}"> %</span></label>
-    <label>距離高點回撤超過 <span><input type="number" step="1" min="0" data-alert="dd" value="${a.dd}"> %</span></label>
-    <label>選擇權距到期少於 <span><input type="number" step="1" min="0" data-alert="dte" value="${a.dte}"> 天</span></label>
-    <label>單一選擇權部位超過淨資產 <span><input type="number" step="1" min="0" data-alert="optMax" value="${a.optMax}"> %</span></label>
-    <label>冷靜期提醒 <input type="checkbox" data-alert="cool" ${a.cool ? 'checked' : ''}></label>
-    <label>單日帳戶跌幅超過 <span><input type="number" step="0.5" min="0" data-alert="coolPct" value="${a.coolPct}"> % 時提醒冷靜</span></label>
-    <label>瀏覽器通知（網頁開著時） <input type="checkbox" data-alert="notify" ${a.notify ? 'checked' : ''}></label>
-  </div>
-  <div class="x-note">冷靜期提醒：單日跌幅超過設定值，或買進的選擇權虧損超過 25% 時，建議當天先不要開新部位。賣出的選擇權變成價內時一定會提醒。警示只在網頁開著時檢查；按橫幅右邊的 ✕ 可以今天先不顯示。</div>`;
-}
-
-// ============ 今日損益貢獻 ============
-function renderContrib(c) {
-  const box = el('contribBox'); if (!box) return;
-  const items = [];
-  for (const r of c.rows) {
-    const q = quotes[r.sym];
-    if (q?.price != null && q.prevClose) items.push({ name: r.sym, sub: SESSION_TAG[q.session] || '', v: r.shares * (q.price - q.prevClose), p: q.price / q.prevClose - 1 });
-  }
-  for (const o of c.optRows) {
-    const q = optQuotes[o.sym];
-    if (q?.price != null && q.prevClose) items.push({ name: optName(o.sym), sub: o.qty < 0 ? '賣方' : '', v: o.qty * 100 * (q.price - q.prevClose), p: (q.price / q.prevClose - 1) * Math.sign(o.qty) });
-  }
-  if (!items.length) { box.innerHTML = '<div class="x-empty">還沒有今天的報價</div>'; el('contribNote').textContent = ''; return; }
-  items.sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
-  const total = items.reduce((s, i) => s + i.v, 0), max = Math.max(...items.map(i => Math.abs(i.v)), 1);
-  el('contribNote').innerHTML = `合計 <b class="num ${cls(total)}">${usd(total, { sign: true })}</b>`;
-  box.innerHTML = items.map(i => {
-    const w = Math.abs(i.v) / max * 50;
-    return `<div class="hbar-row"><div class="hbar-name">${esc(i.name)} ${i.sub ? `<span class="sess">${i.sub}</span>` : ''}</div>
-      <div class="hbar-track"><span class="ref" style="left:50%"></span><i class="${i.v >= 0 ? 'pos' : 'neg'}" style="${i.v >= 0 ? 'left:50%' : `left:${50 - w}%`};width:${w}%"></i></div>
-      <div class="hbar-val num ${cls(i.v)}">${usd(i.v, { sign: true })} <span class="x-sub">${pct(i.p, 2)}</span></div></div>`;
-  }).join('');
-}
-
 // ============ 風險報酬指標與回撤 ============
 let metricsRange = store.get('metricsRange', '0');
 const hasOutside = () => data.transactions.some(t => t.type === 'income' && (t.category || '').startsWith('帳外獲利'));
@@ -473,357 +425,304 @@ function renderHeat() {
     <div class="x-note">${outsideAsFlow() ? '目前把帳外獲利當入金計算（上方開關）。' : ''}每格是那個月的時間加權報酬；顏色越深代表漲跌越大。灰色那一列是同期 Nasdaq 100，方便比較。第一個月只從紀錄開始那天算起。</div>`;
 }
 
-// ============ 依標的彙總曝險 ============
-function exposureGroups(c) {
-  const groups = {};
-  const add = (g, label, val, counted) => {
-    const G = groups[g] ??= { g, total: 0, items: [] };
-    if (counted) G.total += val;
-    G.items.push({ label, val, counted });
-  };
-  for (const r of c.rows) if (r.value != null) add(grp(r.sym), `${r.sym}${r.lev !== 1 ? ` ×${r.lev}` : ''}`, r.value * r.lev, true);
+// ============ 個股曝險總覽：把 ETF 拆成成分股 ============
+const PROXY_ETF = { SPX: 'VOO', NDX: 'QQQ', SOX: 'SOXX' };   // 槓桿、反向 ETF 改用同一個指數的 ETF 成分股計算
+const etfData = {}, etfAsked = new Set();
+let expoAll = false, etfView = store.get('etfView', '');
+const titleCase = s => s && s === s.toUpperCase() ? s.toLowerCase().replace(/\b[a-z]/g, ch => ch.toUpperCase()) : s;
+function etfsFor(syms) {
+  // 這些部位要用到哪些 ETF 的成分股：一倍 ETF 用自己的，另外都備一份同指數的 ETF
+  const out = new Set();
+  for (const s of syms) { const g = grp(s); if (!PROXY_ETF[g]) continue; if (levOf(s) === 1) out.add(s); out.add(PROXY_ETF[g]); }
+  return [...out];
+}
+const heldSyms = c => [...new Set([...c.rows.map(r => r.sym), ...c.optRows.map(o => occ(o.sym).root)])];
+async function loadEtfs(syms) {
+  const todo = syms.filter(s => !etfAsked.has(s)); if (!todo.length) return;
+  todo.forEach(s => etfAsked.add(s));
+  try { Object.assign(etfData, await (await fetch('/api/etf-holdings?symbols=' + todo.join(','))).json()); }
+  catch { todo.forEach(s => { etfData[s] = { error: '連不上伺服器' }; }); }
+  if (curTab === 'risk') { const c = calc(); renderExposure(c); renderEtfView(c); }
+}
+function etfSource(sym) {
+  // 回傳要拆的 ETF 代號；undefined 代表還在載入，null 代表沒辦法拆
+  const g = grp(sym), proxy = PROXY_ETF[g];
+  if (levOf(sym) === 1) { const own = etfData[sym]; if (!own) return undefined; if (own.stocks) return sym; }
+  const p = etfData[proxy]; if (!p) return undefined;
+  return p.stocks ? proxy : null;
+}
+function positionExposure(c) {
+  // 每個部位的曝險：股票／ETF ＝ 市值 × 槓桿倍數；買方選擇權用 delta 換算；賣方選擇權跟槓桿率一樣不計入
+  const out = [];
+  for (const r of c.rows) if (r.value != null) {
+    const cash = grp(r.sym) === 'CASH';   // 國庫券類列市值參考，不算曝險
+    out.push({ sym: r.sym, label: r.sym + (r.lev !== 1 && !cash ? ` ×${r.lev}` : ''), val: cash ? r.value : r.value * r.lev });
+  }
   for (const o of c.optRows) {
     const oc = occ(o.sym), S = quotes[oc.root]?.price;
-    if (o.delta == null || !S) continue;
-    add(grp(oc.root), `${optName(o.sym)}（Δ${o.delta.toFixed(2)}${o.qty < 0 ? '，賣方不計入' : ''}）`, o.qty * 100 * o.delta * S * levOf(oc.root), o.qty > 0);
+    if (o.qty > 0 && o.delta != null && S) out.push({ sym: oc.root, label: optName(o.sym), val: o.qty * 100 * o.delta * S * levOf(oc.root) });
   }
-  const list = Object.values(groups).filter(g => g.items.length).sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
-  return { groups: list.filter(g => Math.abs(g.total) > 0.5), all: list };
+  return out;
 }
-function renderExposure(c, expo) {
-  const box = el('exposureBox'); if (!box) return;
-  if (!expo.all.length) { box.innerHTML = '<div class="x-empty">目前沒有持股</div>'; return; }
-  const eq = c.totalUSD, max = Math.max(eq, ...expo.all.map(g => Math.abs(g.total)), 1);
-  const top = expo.groups[0];
-  el('exposureNote').innerHTML = top ? `最大：${esc(grpName(top.g))} <span class="x-money">${pctPlain(top.total / eq)}</span> 淨資產` : '';
-  box.innerHTML = expo.all.map(g => {
-    const w = Math.abs(g.total) / max * 100, share = g.total / eq;
-    return `<div class="hbar-row"><div class="hbar-name">${esc(grpName(g.g))}</div>
-      <div class="hbar-track"><i class="${g.total >= 0 ? '' : 'neg'}" style="left:0;width:${w}%"></i><span class="ref" style="left:${eq / max * 100}%" title="淨資產"></span></div>
-      <div class="hbar-val num">${usd0(g.total)} <span class="x-sub">${pctPlain(share)} 淨資產</span></div>
-      <div class="hbar-items">${g.items.map(i => `<span class="x-chip ${i.counted ? '' : 'off'}">${esc(i.label)} ${usd0(i.val)}</span>`).join('')}</div></div>`;
-  }).join('') + `<div class="x-note">曝險＝市值 × 槓桿倍數（買方選擇權用 delta 換算）。直線標記代表你的淨資產 <span class="x-money">${usd0(eq)}</span>，超過這條線代表在這個標的上已經用了槓桿。賣方選擇權列出來參考，不計入。</div>`;
-}
-
-// ============ 壓力測試 ============
-let stressMove = Number(store.get('stressMove', '-20'));
-const stressGroup = {};   // 個別標的的變動（沒設定就跟著整體）
-function scenario(c, moveOf) {
-  const r = curRate();
-  let equity = c.cashUSD, exposure = 0, req = 0;
-  const rows = [];
-  for (const p of c.rows) {
-    if (p.price == null) continue;
-    const L = p.lev, m = moveOf(grp(p.sym)), f = Math.max(0, 1 + L * m);
-    const value = p.shares * p.price * f;
-    equity += value; exposure += value * L;
-    req += value * Math.min(1, 0.25 * Math.max(1, Math.abs(L)));   // 一般維持率 25%；槓桿 ETF 依倍數提高
-    rows.push({ name: p.sym, now: p.value, after: value });
-  }
-  for (const o of c.optRows) {
-    const oc = occ(o.sym), S0 = quotes[oc.root]?.price, L = levOf(oc.root), m = moveOf(grp(oc.root));
-    const T = yearsTo(oc.exp);
-    if (!S0 || o.mark == null) { equity += o.value; rows.push({ name: optName(o.sym), now: o.value, after: o.value }); continue; }
-    const iv = impliedVol(oc, o.mark, S0, T, r) || 0.5, S1 = S0 * Math.max(0, 1 + L * m);
-    const bs = S1 > 0 ? bsModel(S1, oc.strike, T, r, iv, oc.call) : { price: oc.call ? 0 : oc.strike, delta: oc.call ? 0 : -1 };
-    const value = o.qty * 100 * bs.price;
-    equity += value;
-    if (o.qty > 0) exposure += o.qty * 100 * bs.delta * S1 * L;
-    // 賣方保證金（粗估）：標的 20% − 價外金額，至少履約價 10%，再加上權利金
-    if (o.qty < 0) { const otm = Math.max(0, oc.call ? oc.strike - S1 : S1 - oc.strike); req += Math.abs(o.qty) * 100 * (Math.max(0.2 * S1 - otm, 0.1 * oc.strike) + bs.price); }
-    rows.push({ name: optName(o.sym), now: o.value, after: value });
-  }
-  return { equity, exposure, leverage: equity > 0 ? exposure / equity : null, req, rows };
-}
-function solveMove(c, ok) {
-  // 所有標的同時下跌，找出 ok(情境) 開始不成立的跌幅；跌 99% 都還成立就回傳 null
-  let lo = -0.99, hi = 0;
-  if (ok(scenario(c, () => lo))) return null;
-  if (!ok(scenario(c, () => hi))) return 0;
-  for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (ok(scenario(c, () => mid))) hi = mid; else lo = mid; }
-  return hi;
-}
-function renderStress(c) {
-  const box = el('stressBox'); if (!box) return;
-  if (!c.rows.length && !c.optRows.length) { box.innerHTML = '<div class="x-empty">目前沒有持股</div>'; return; }
-  const groups = [...new Set([...c.rows.map(r => grp(r.sym)), ...c.optRows.map(o => grp(occ(o.sym).root))])];
-  if (!el('stressCtl') || el('stressCtl').dataset.groups !== groups.join(',')) {
-    const presets = [-40, -30, -20, -10, -5, 5, 10, 20];
-    box.innerHTML = `<div id="stressCtl" data-groups="${groups.join(',')}">
-      <div class="stress-controls"><span>所有標的同時</span><span class="stress-move num" id="stressMoveLbl"></span>
-        <input type="range" min="-60" max="60" step="1" id="stressRange" value="${stressMove}">
-        <div class="stress-presets">${presets.map(p => `<button data-stress="${p}">${p > 0 ? '+' : ''}${p}%</button>`).join('')}</div></div>
-      ${groups.length > 1 ? `<details class="x-details"><summary>分別設定每個標的</summary><div class="stress-groups">${groups.map(g => `<label>${esc(grpName(g))}
-        <input type="range" min="-60" max="60" step="1" data-sgroup="${g}" value="${stressGroup[g] ?? stressMove}"><b class="num" data-sglbl="${g}"></b></label>`).join('')}</div></details>` : ''}
-    </div><div id="stressOut"></div>`;
-  }
-  el('stressMoveLbl').textContent = (stressMove > 0 ? '+' : '') + stressMove + '%';
-  el('stressRange').value = stressMove;
-  document.querySelectorAll('[data-stress]').forEach(b => b.classList.toggle('on', +b.dataset.stress === stressMove));
-  document.querySelectorAll('[data-sglbl]').forEach(b => { const v = stressGroup[b.dataset.sglbl] ?? stressMove; b.textContent = (v > 0 ? '+' : '') + v + '%'; });
-  document.querySelectorAll('[data-sgroup]').forEach(i => { if (document.activeElement !== i) i.value = stressGroup[i.dataset.sgroup] ?? stressMove; });
-
-  const moveOf = g => (stressGroup[g] ?? stressMove) / 100;
-  const base = scenario(c, () => 0), sc = scenario(c, moveOf);
-  const dEq = sc.equity - base.equity;
-  const half = solveMove(c, s => s.equity > base.equity / 2), zero = solveMove(c, s => s.equity > 0);
-  const call = solveMove(c, s => s.equity > s.req);
-  const curve = [];
-  for (let m = -50; m <= 50; m += 2) curve.push({ x: m, y: scenario(c, () => m / 100).equity, label: (m > 0 ? '+' : '') + m + '%' });
-  const sameAll = !Object.keys(stressGroup).length;
-  el('stressOut').innerHTML = `<div class="x-grid">
-      <div class="x-tile"><div class="k">淨資產</div><div class="v num">${usd0(sc.equity)}</div><div class="s num ${cls(dEq)}">${usd0(dEq, { sign: true })}（${pct(dEq / base.equity)}）</div></div>
-      <div class="x-tile"><div class="k">槓桿率</div><div class="v num">${sc.leverage == null ? '—' : sc.leverage.toFixed(2) + 'x'}</div><div class="s">現在 <span class="x-money">${base.leverage?.toFixed(2)}x</span></div></div>
-      <div class="x-tile"><div class="k">淨資產腰斬</div><div class="v num down">${half == null ? '不會' : pct(half, 0)}</div><div class="s">所有標的同時跌這麼多時</div></div>
-      <div class="x-tile"><div class="k">估計追繳點</div><div class="v num down">${call == null ? '不會' : call === 0 ? '已低於維持率' : pct(call, 0)}</div><div class="s">依一般券商維持率粗估（股票 25%、槓桿 ETF 依倍數提高），實際以券商為準</div></div>
-      <div class="x-tile"><div class="k">淨資產歸零</div><div class="v num down">${zero == null ? '不會' : pct(zero, 0)}</div><div class="s">所有標的同時跌這麼多時</div></div>
-    </div>
-    <div class="chart-box" id="stressCurve" style="height:180px;margin-top:12px"></div>
-    <div class="table-wrap" style="margin:8px 0 0"><table class="x-table"><thead><tr><th class="l">部位</th><th>現在</th><th>情境後</th><th>變化</th></tr></thead>
-      <tbody>${sc.rows.map(r => `<tr><td class="l">${esc(r.name)}</td><td class="num">${usd0(r.now)}</td><td class="num">${usd0(r.after)}</td><td class="num ${cls(r.after - r.now)}">${usd0(r.after - r.now, { sign: true })}</td></tr>`).join('')}
-        <tr><td class="l">現金</td><td class="num">${usd0(c.cashUSD)}</td><td class="num">${usd0(c.cashUSD)}</td><td class="num">—</td></tr></tbody></table></div>
-    <div class="x-note">曲線是「所有標的同時漲跌多少 %」對應的淨資產，選擇權用 Black-Scholes 重新計價（隱含波動率維持現在的水準），所以會看到非線性的彎曲。
-      槓桿 ETF 用「標的變動 × 倍數」估算，是單日的近似；連續多天的走勢會因為每日重新平衡而有差距。${sameAll ? '' : '目前有個別標的的設定，表格與上方數字以個別設定計算，曲線仍是所有標的同時變動。'}</div>`;
-  lineChart(el('stressCurve'), curve.map(p => ({ ...p, x: p.x })), {
-    fmtY: v => usd0(v), fmtTip: p => `標的 ${p.label}<br>淨資產 <b>${usd0(p.y)}</b>（${pct(p.y / base.equity - 1)}）`,
-    ref: base.equity, area: false, mark: sameAll ? { x: stressMove, y: sc.equity } : null,
-  });
-}
-
-// ============ 下單前檢查：部位計算機＋檢查清單 ============
-const CHECK_ITEMS = [
-  '我寫得出這筆的買進理由，不是因為想快點把虧損賺回來',
-  '我已經決定好停損點，跌到那裡會照著做',
-  '這筆最多虧損在我設定的比例以內',
-  '我現在情緒平穩，今天沒有剛虧完錢',
-  '買進後的槓桿率還在我設定的上限以內',
-];
-const ck = { type: store.get('ck.type', 'stock'), sym: '', entry: '', stop: '', prem: '', delta: '',
-             risk: Number(store.get('ck.risk', '1')), optPct: Number(store.get('ck.optPct', '3')), checks: new Set() };
-function renderCheck(c) {
-  const box = el('checkBox'); if (!box) return;
-  if (!el('ckForm')) {
-    box.innerHTML = `<div id="ckForm">
-      <div class="ck-row"><span class="seg" id="ckType"><button data-ck-type="stock">股票／ETF</button><button data-ck-type="option">買選擇權</button></span>
-        <label class="ck-field">代號 <input data-ck="sym" placeholder="例如 GGLL" style="text-transform:uppercase"></label></div>
-      <div class="ck-row" data-ck-for="stock">
-        <label class="ck-field">進場價 <input type="number" step="any" data-ck="entry"></label>
-        <label class="ck-field">停損價 <input type="number" step="any" data-ck="stop"></label>
-        <label class="ck-field">這筆最多虧淨資產 <input type="number" step="0.5" min="0" data-ck="risk"> %</label></div>
-      <div class="ck-row" data-ck-for="option">
-        <label class="ck-field">每股權利金 <input type="number" step="any" data-ck="prem"></label>
-        <label class="ck-field">Delta（選填） <input type="number" step="0.01" data-ck="delta"></label>
-        <label class="ck-field">最多投入淨資產 <input type="number" step="0.5" min="0" data-ck="optPct"> %</label></div>
-      <div id="ckOut"></div>
-      <div class="ck-list" id="ckList"></div>
-      <div id="ckVerdict"></div></div>`;
-    box.querySelector('[data-ck="risk"]').value = ck.risk;
-    box.querySelector('[data-ck="optPct"]').value = ck.optPct;
-  }
-  document.querySelectorAll('[data-ck-type]').forEach(b => b.classList.toggle('on', b.dataset.ckType === ck.type));
-  document.querySelectorAll('[data-ck-for]').forEach(r => { r.hidden = r.dataset.ckFor !== ck.type; });
-  const eq = c.totalUSD, sym = ck.sym.toUpperCase(), lev = sym ? levOf(sym) : 1, n = v => parseFloat(v);
-  let out = '<div class="x-note">填入價格後會算出最多能買多少。</div>';
-  if (ck.type === 'stock' && n(ck.entry) > 0 && n(ck.stop) > 0) {
-    const entry = n(ck.entry), stop = n(ck.stop), per = entry - stop;
-    if (per <= 0) out = '<div class="x-note">停損價要低於進場價。</div>';
-    else {
-      const maxLoss = eq * ck.risk / 100, qty = Math.floor(maxLoss / per), cost = qty * entry;
-      const newLev = (c.exposure + cost * lev) / eq;
-      out = `<div class="x-grid">
-        <div class="x-tile"><div class="k">最多買</div><div class="v num">${qty} 股</div><div class="s">停損時虧 ${usd0(qty * per)}（淨資產 ${pctPlain(qty * per / eq, 1)}）</div></div>
-        <div class="x-tile"><div class="k">需要資金</div><div class="v num">${usd0(cost)}</div><div class="s">佔淨資產 ${pctPlain(cost / eq)}${cost > Math.max(c.cashUSD, 0) ? '，會用到融資' : ''}</div></div>
-        <div class="x-tile"><div class="k">買進後槓桿率</div><div class="v num ${newLev > alertCfg().lev ? 'up' : ''}">${newLev.toFixed(2)}x</div><div class="s">現在 <span class="x-money">${c.leverage?.toFixed(2)}x</span>${lev !== 1 ? `・${sym} 以 ${lev} 倍計算` : ''}</div></div></div>`;
+function stockExposure(c) {
+  const stocks = {}, other = {}, names = {};
+  let pending = false;
+  const add = (bucket, key, name, val, via) => {
+    const G = bucket[key] ??= { key, name, total: 0, via: {} };
+    G.total += val; G.via[via] = (G.via[via] || 0) + val;
+  };
+  for (const p of positionExposure(c)) {
+    const g = grp(p.sym);
+    if (g === 'CASH') { add(other, 'CASH', '現金類（短天期國庫券，不算曝險）', p.val, p.label); continue; }
+    if (['BTC', 'SILVER', 'GOLD'].includes(g)) { add(other, g, grpName(g), p.val, p.label); continue; }
+    if (!PROXY_ETF[g]) { add(stocks, g, GROUP_NAME[g] || '', p.val, p.label); continue; }
+    const src = etfSource(p.sym);
+    if (!src) {
+      if (src === undefined) pending = true;
+      add(other, g, `${grpName(g)}（${src === undefined ? '成分股載入中' : '抓不到成分股'}）`, p.val, p.label); continue;
     }
-  } else if (ck.type === 'option' && n(ck.prem) > 0) {
-    const prem = n(ck.prem) * 100, budget = eq * ck.optPct / 100, qty = Math.floor(budget / prem), cost = qty * prem;
-    const S = sym ? quotes[sym]?.price : null, d = n(ck.delta);
-    const addExp = S && d ? qty * 100 * d * S * lev : null;
-    out = `<div class="x-grid">
-      <div class="x-tile"><div class="k">最多買</div><div class="v num">${qty} 口</div><div class="s">每口 ${usd0(prem)}；預算 ${usd0(budget)}</div></div>
-      <div class="x-tile"><div class="k">最多虧損</div><div class="v num">${usd0(cost)}</div><div class="s">全部歸零時，佔淨資產 ${pctPlain(cost / eq, 1)}</div></div>
-      <div class="x-tile"><div class="k">買進後槓桿率</div><div class="v num">${addExp == null ? '—' : ((c.exposure + addExp) / eq).toFixed(2) + 'x'}</div><div class="s">${addExp == null ? '填代號和 delta 就會計算' : `增加曝險 ${usd0(addExp)}`}</div></div></div>
-      ${qty === 0 ? '<div class="x-note">預算連一口都買不起：這筆對你的資產規模來說太大了。</div>' : ''}`;
+    const d = etfData[src], via = src === p.sym ? p.label : `${p.label}（依 ${src} 成分股）`;
+    let inTop = 0;
+    for (const h of d.top) if (h.sym) {
+      const k = grp(h.sym); inTop += h.w;
+      names[k] ??= h.name;
+      add(stocks, k, GROUP_NAME[k] || titleCase(h.name), p.val * h.w / 100, via);
+    }
+    if (inTop < 99.9) add(other, 'REST', 'ETF 前 50 名以外的持股', p.val * (100 - inTop) / 100, via);
   }
-  el('ckOut').innerHTML = out;
-  // 檢查清單：固定的 5 項＋你自己啟用中的規則
-  const items = CHECK_ITEMS.map((t, i) => ['b' + i, t]).concat(activeRules().map(r => ['r' + r.id, '規則：' + ruleText(r)]));
-  const key = items.map(x => x[0]).join(',');
-  if (el('ckList').dataset.key !== key) {
-    el('ckList').dataset.key = key;
-    el('ckList').innerHTML = items.map(([id, t]) => `<label><input type="checkbox" data-ck-item="${id}" ${ck.checks.has(id) ? 'checked' : ''}> ${esc(t)}</label>`).join('');
-  }
-  const done = items.filter(([id]) => ck.checks.has(id)).length;
-  el('ckVerdict').innerHTML = done === items.length
-    ? '<div class="ck-ok">✓ 都確認了。照你算好的數量和停損下單，然後就交給計畫。</div>'
-    : `<div class="x-note">還有 ${items.length - done} 項沒有勾。有任何一項勾不下去，這筆可以先等等，機會永遠都有。</div>`;
+  const sort = o => Object.values(o).sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+  const shorts = c.optRows.filter(o => o.qty < 0).length;
+  return { stocks: sort(stocks), other: sort(other), pending, shorts };
+}
+function renderExposure(c) {
+  const box = el('exposureBox'); if (!box) return;
+  loadEtfs(etfsFor(heldSyms(c)));
+  const { stocks, other, pending, shorts } = stockExposure(c), eq = c.totalUSD;
+  if (!stocks.length && !other.length) { box.innerHTML = '<div class="x-empty">目前沒有持股</div>'; el('exposureNote').textContent = ''; return; }
+  const sum = stocks.reduce((s, g) => s + g.total, 0), top5 = stocks.slice(0, 5).reduce((s, g) => s + g.total, 0);
+  const max = Math.max(...stocks.concat(other).map(g => Math.abs(g.total)), 1);
+  el('exposureNote').innerHTML = stocks[0] ? `最大：${esc(stocks[0].key)} <span class="x-money">${pctPlain(stocks[0].total / eq)}</span> 淨資產` : '';
+  const row = (g, muted) => {
+    const share = g.total / eq, w = Math.abs(g.total) / max * 100;
+    const via = Object.entries(g.via).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+    return `<div class="hbar-row ${muted ? 'muted-row' : ''}"><div class="hbar-name">${muted ? esc(g.name) : `${esc(g.key)} <span class="x-sub">${esc(g.name || '')}</span>`}</div>
+      <div class="hbar-track"><i class="${g.total >= 0 ? '' : 'neg'}" style="left:0;width:${w}%"></i></div>
+      <div class="hbar-val num">${usd0(g.total)} <span class="x-sub">${pctPlain(share, 1)} 淨資產</span></div>
+      <div class="hbar-items">${via.map(([k, v]) => `<span class="x-chip">${esc(k)} ${usd0(v)}</span>`).join('')}</div></div>`;
+  };
+  const shown = expoAll ? stocks : stocks.slice(0, 15);
+  box.innerHTML = `<div class="x-grid" style="margin-bottom:12px">
+      <div class="x-tile"><div class="k">個股曝險合計</div><div class="v num">${usd0(sum)}</div><div class="s">淨資產的 <span class="x-money">${pctPlain(sum / eq)}</span></div></div>
+      <div class="x-tile"><div class="k">涵蓋公司</div><div class="v">${stocks.length} 家</div><div class="s">ETF 只拆前 50 大持股</div></div>
+      <div class="x-tile"><div class="k">前 5 大公司合計</div><div class="v num">${pctPlain(top5 / eq)}</div><div class="s">佔淨資產</div></div>
+    </div>
+    ${pending ? '<div class="x-sub" style="margin-bottom:6px">正在抓 ETF 成分股…</div>' : ''}
+    ${shown.map(g => row(g)).join('')}
+    ${stocks.length > 15 ? `<button class="ghost" data-expo-all="1" style="margin-top:8px">${expoAll ? '只看前 15 家' : `顯示全部 ${stocks.length} 家`}</button>` : ''}
+    ${other.length ? `<div class="x-sub" style="margin:14px 0 2px">不是個股的部分</div>${other.map(g => row(g, true)).join('')}` : ''}
+    <div class="x-note">曝險＝市值 × 槓桿倍數。ETF 依成分股權重拆開，例如 100 元的 VOO 裡約有 ${(etfData.VOO?.top?.[0]?.w ?? 8).toFixed(1)} 元是 ${esc(etfData.VOO?.top?.[0]?.sym || 'NVDA')}；
+      槓桿、反向 ETF 用同一個指數的 ETF 成分股乘上倍數；GOOG／GOOGL 這類同公司不同股別合併計算。買方選擇權用 delta 換算${shorts ? `；賣方選擇權（${shorts} 筆）跟槓桿率一樣不計入` : ''}。
+      成分股資料來自 Zacks，每天更新一次。</div>`;
+}
+function renderEtfView(c) {
+  const box = el('etfBox'); if (!box) return;
+  if (box.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+  // 選單：你持有的 ETF（槓桿 ETF 換成它依據的 ETF），加上查過的
+  const size = {};
+  for (const p of positionExposure(c)) size[p.sym] = (size[p.sym] || 0) + Math.abs(p.val);
+  const hs = heldSyms(c).filter(s => PROXY_ETF[grp(s)]).sort((a, b) => (size[b] || 0) - (size[a] || 0));   // 部位大的排前面
+  const list = [...new Set(hs.map(s => levOf(s) === 1 ? s : PROXY_ETF[grp(s)]))];
+  if (!etfView) etfView = list[0] || 'VOO';
+  if (!list.includes(etfView)) list.push(etfView);
+  loadEtfs([etfView]);
+  const d = etfData[etfView];
+  // 你持有的部位裡，有多少是透過這檔 ETF
+  const mine = positionExposure(c).filter(p => etfSource(p.sym) === etfView).reduce((s, p) => s + p.val, 0);
+  const head = `<div class="etf-ctl"><span class="seg">${list.map(s => `<button data-etf="${esc(s)}" class="${s === etfView ? 'on' : ''}">${esc(s)}</button>`).join('')}</span>
+    <span class="etf-look"><input id="etfLookup" placeholder="查其他 ETF，例如 QQQ" style="text-transform:uppercase"><button class="ghost" id="etfLookupBtn">查詢</button></span></div>`;
+  if (!d) { box.innerHTML = head + '<div class="x-empty">正在抓成分股…</div>'; return; }
+  if (d.error) { box.innerHTML = head + `<div class="x-empty">抓不到 ${esc(etfView)} 的成分股：${esc(d.error)}</div>`; return; }
+  const maxW = Math.max(...d.top.map(h => h.w), 1);
+  box.innerHTML = head + `
+    ${d.stocks ? '' : `<div class="x-sub" style="margin:8px 0">${esc(etfView)} 主要持有交換合約或選擇權，不是直接持有股票，所以曝險總覽不會用它來拆。</div>`}
+    <div class="x-sub" style="margin:8px 0">共 ${d.count} 檔持股，前 ${d.top.length} 大合計 ${d.topSum.toFixed(1)}%${mine ? `・你透過 ${esc(etfView)} 的曝險 <span class="x-money">${usd0(mine)}</span>` : ''}</div>
+    <div class="table-wrap" style="margin:0"><table class="x-table etf-table"><thead><tr><th>#</th><th class="l">代號</th><th class="l">公司</th><th>每 100 元裡</th>${mine ? '<th>你的曝險</th>' : ''}<th class="l bar-col"></th></tr></thead>
+      <tbody>${d.top.map((h, i) => `<tr><td class="rank">${i + 1}</td><td class="l"><b>${esc(h.sym || '—')}</b></td><td class="l name">${esc(titleCase(h.name))}</td>
+        <td class="w">${h.w.toFixed(2)} 元</td>${mine ? `<td><span class="x-money">${usd0(mine * h.w / 100)}</span></td>` : ''}<td class="l bar-col"><i style="width:${h.w / maxW * 100}%"></i></td></tr>`).join('')}</tbody></table></div>
+    <div class="x-note">資料來自 Zacks（${new Date(d.fetched * 1000).toLocaleDateString('zh-TW')} 抓取${d.stale ? '，今天抓不到，先用上次的資料' : ''}），ETF 的持股每天會小幅變動。</div>`;
 }
 
-// ============ 部位計畫：理由、停損、目標、檢討日 ============
-let planEdit = null;   // 正在編輯的部位代號
-const planOf = sym => (data.plans || []).find(p => p.sym === sym && p.status !== 'closed');
-function positionsForPlans(c) {
-  return [...c.rows.map(r => ({ sym: r.sym, kind: 'stock', qty: r.shares, label: r.sym })),
-          ...c.optRows.map(o => ({ sym: o.sym, kind: 'option', qty: o.qty, label: optName(o.sym) }))];
+// ============ 交易計畫：新交易先寫計畫，等滿交易日才下單 ============
+// 我的守則（固定的，計畫表單和上方提醒都照這個檢查）：
+// 1. 不做選擇權買方（買回自己賣出的可以）
+// 2. 新交易先寫計畫，寫完至少等 3 個交易日；計畫裡寫好的加碼、出場、roll 不用再等
+// 3. 單一個股最多佔總資產 20%，超過 25% 減碼回 20%；sell put 以履約價 × 100 計算；禁止個股型槓桿 ETF；大盤型 ETF 不受限
+const RULES = { wait: 3, cap: 20, trim: 25 };
+const PLAN_ACTIONS = { buy: '買進／加碼', sellput: 'Sell put', cc: 'Covered call', reduce: '減碼／停損／平倉', roll: 'Roll', dca: '定期買進' };
+const OPT_ACTIONS = new Set(['sellput', 'cc', 'roll']);
+const isWeekday = d => { const w = new Date(d + 'T12:00:00Z').getUTCDay(); return w !== 0 && w !== 6; };
+function addTradingDays(d, n) {
+  let t = new Date(d + 'T12:00:00Z').getTime(), k = 0;
+  while (k < n) { t += 864e5; if (isWeekday(new Date(t).toISOString().slice(0, 10))) k++; }
+  return new Date(t).toISOString().slice(0, 10);
 }
-// 看多的部位：停損在下、目標在上；看空的（反向 ETF、買 put、賣 call）相反
-function isBullish(pos) {
-  if (pos.kind === 'stock') return levOf(pos.sym) >= 0;
-  const oc = occ(pos.sym);
-  return oc.call ? pos.qty > 0 : pos.qty < 0;
+function tradingDaysBetween(a, b) { let n = 0, t = a; while (t < b) { t = addTradingDays(t, 1); n++; } return n; }
+const planExec = p => addTradingDays(p.created, p.wait ?? RULES.wait);
+const planState = p => p.status === 'void' ? 'void' : p.status === 'closed' ? 'closed' : today() < planExec(p) ? 'waiting' : 'ready';
+const sameGroup = (a, b) => grp(a) === grp(b);
+const isSingleStock = s => !INDEX_GROUPS.has(grp(s));                     // 大盤、類股、國庫券、商品 ETF 不算個股
+const isBannedLev = s => isSingleStock(s) && Math.abs(levOf(s)) !== 1;    // 個股型槓桿 ETF（GGLL、TSLL…）
+function capExposure(c, extra) {
+  // 個股持股市值，加上 sell put 的「履約價 × 100」；extra 是計畫中還沒成交的部位
+  const g = {};
+  const add = (s, v) => { if (isSingleStock(s)) g[grp(s)] = (g[grp(s)] || 0) + v; };
+  for (const r of c.rows) if (r.value != null) add(r.sym, r.value);
+  for (const o of c.optRows) { const oc = occ(o.sym); if (o.qty < 0 && !oc.call) add(oc.root, oc.strike * 100 * -o.qty); }
+  if (extra?.sym && extra.amount) add(extra.sym, extra.amount);
+  return Object.entries(g).map(([k, v]) => ({ g: k, v, pct: v / c.totalUSD })).sort((a, b) => b.v - a.v);
 }
-function planPrice(plan, pos) {
-  if (pos.kind === 'stock') return quotes[pos.sym]?.price ?? null;
-  return plan.basis === 'option' ? (optQuotes[pos.sym]?.mark ?? null) : (quotes[occ(pos.sym).root]?.price ?? null);
+
+let planEditId = null;   // 正在編輯的計畫；null 代表寫新的
+const PF = ['sym', 'action', 'qty', 'price', 'exp', 'thesis', 'entry', 'addCond', 'exitCond', 'rollCond', 'stop', 'target'];
+function readPlanForm() {
+  const f = {}; document.querySelectorAll('#planForm [data-pf]').forEach(i => { f[i.dataset.pf] = i.value; });
+  f.sym = (f.sym || '').trim().toUpperCase(); f.action ||= 'buy';
+  return f;
 }
-function planStatus(plan, pos) {
-  const px = planPrice(plan, pos), bull = isBullish(pos), out = [];
-  if (px != null && plan.stop > 0 && (bull ? px <= plan.stop : px >= plan.stop)) out.push('stop');
-  if (px != null && plan.target > 0 && (bull ? px >= plan.target : px <= plan.target)) out.push('target');
-  if (plan.review && plan.review <= today()) out.push('review');
-  return { px, out };
+function fillPlanForm(p) {
+  document.querySelectorAll('#planForm [data-pf]').forEach(i => { i.value = p?.[i.dataset.pf] ?? (i.dataset.pf === 'action' ? 'buy' : ''); });
+}
+function planAmount(f) {
+  const q = parseFloat(f.qty) || 0, px = parseFloat(f.price) || (OPT_ACTIONS.has(f.action) ? 0 : quotes[f.sym]?.price || 0);
+  if (f.action === 'sellput') return q * 100 * px;      // 被指派時要付的錢
+  if (OPT_ACTIONS.has(f.action)) return 0;
+  return q * px;
+}
+function planWarnings(f, c) {
+  const w = [], sym = f.sym;
+  if (!sym) return w;
+  if (isBannedLev(sym) && f.action !== 'reduce') w.push({ bad: true, t: `守則 3：${sym} 是個股型槓桿 ETF，不能交易` });
+  const amt = planAmount(f);
+  if (['buy', 'dca', 'sellput'].includes(f.action) && amt > 0 && isSingleStock(sym) && !isBannedLev(sym)) {
+    const after = capExposure(c, { sym, amount: amt }).find(x => x.g === grp(sym));
+    if (after && after.pct * 100 > RULES.cap) w.push({ bad: true, t: `守則 3：交易後 ${esc(grpName(grp(sym)))} 會佔總資產 <span class="x-money">${pctPlain(after.pct)}</span>，超過 ${RULES.cap}%` });
+    else if (after) w.push({ t: `交易後 ${esc(grpName(grp(sym)))} 佔總資產 <span class="x-money">${pctPlain(after.pct)}</span>（上限 ${RULES.cap}%）` });
+  }
+  if (f.action === 'cc') {
+    const have = c.rows.filter(r => sameGroup(r.sym, sym)).reduce((s, r) => s + r.shares, 0), need = 100 * (parseFloat(f.qty) || 0);
+    if (need > have) w.push({ bad: true, t: `Covered call 要先持有 ${need} 股 ${esc(sym)}（目前 ${have} 股），不然就是賣裸 call` });
+  }
+  if (f.action !== 'reduce' && !f.exitCond.trim()) w.push({ t: '還沒寫「什麼情況出場」：先寫好，之後要停損就能直接執行，不用再等' });
+  return w;
+}
+function updatePlanCalc() {
+  const box = el('planForm'); if (!box) return;
+  const c = calc(), f = readPlanForm(), isOpt = OPT_ACTIONS.has(f.action);
+  box.querySelectorAll('[data-pf-act]').forEach(b => b.classList.toggle('on', b.dataset.pfAct === f.action));
+  box.querySelector('[data-pf-label="qty"]').textContent = isOpt ? '口數' : '股數';
+  box.querySelector('[data-pf-label="price"]').textContent = isOpt ? '履約價' : '價格';
+  box.querySelectorAll('[data-pf-opt]').forEach(x => { x.hidden = !isOpt; });
+  box.querySelector('[data-pf="price"]').placeholder = !isOpt && quotes[f.sym]?.price ? `現價 ${quotes[f.sym].price}` : '';
+  const amt = planAmount(f);
+  el('planCalc').innerHTML = amt ? `金額 <span class="x-money">${usd0(amt)}</span>${f.action === 'sellput' ? '（被指派時要付）' : ''}・佔總資產 <span class="x-money">${pctPlain(amt / c.totalUSD, 1)}</span>` : '';
+  el('planWarn').innerHTML = planWarnings(f, c).map(x => `<div class="plan-warn ${x.bad ? 'bad' : ''}">${x.bad ? '⚠️' : '・'} ${x.t}</div>`).join('');
+  el('planWhen').textContent = planEditId ? `編輯中：最早 ${planExec(data.plans.find(p => p.id === planEditId) || { created: today() })} 可以下單` : `今天寫好，最早 ${addTradingDays(today(), RULES.wait)} 可以下單`;
+  if (!planEditId) store.set('planDraft', JSON.stringify(f));
+}
+function buildPlanComposer(c) {
+  const box = el('planComposer'); if (!box || box.dataset.built) return;
+  box.dataset.built = '1';
+  box.innerHTML = `<div class="pc" id="planForm">
+    <div class="pc-top">
+      <label class="pc-field pc-sym"><span>標的</span><input data-pf="sym" list="planSyms" placeholder="例如 VOO" autocomplete="off"></label>
+      <div class="pc-field"><span>要做什麼</span><div class="pc-acts">${Object.entries(PLAN_ACTIONS).map(([k, t]) => `<button type="button" data-pf-act="${k}">${t}</button>`).join('')}</div></div>
+      <input type="hidden" data-pf="action" value="buy">
+    </div>
+    <div class="pc-nums">
+      <label class="pc-field"><span data-pf-label="qty">股數</span><input type="number" step="any" min="0" data-pf="qty"></label>
+      <label class="pc-field"><span data-pf-label="price">價格</span><input type="number" step="any" min="0" data-pf="price"></label>
+      <label class="pc-field" data-pf-opt hidden><span>到期日</span><input type="date" data-pf="exp"></label>
+      <div class="pc-calc" id="planCalc"></div>
+    </div>
+    <div class="pc-grid">
+      <label class="pc-field wide"><span>為什麼要做（一兩句就好）</span><textarea data-pf="thesis" rows="2"></textarea></label>
+      <label class="pc-field wide"><span>進場價格或條件</span><input data-pf="entry" placeholder="例如：回到 330 以下再買"></label>
+      <label class="pc-field"><span>什麼情況加碼</span><textarea data-pf="addCond" rows="2"></textarea></label>
+      <label class="pc-field"><span>什麼情況出場</span><textarea data-pf="exitCond" rows="2" placeholder="例如：收盤跌破 315 停損"></textarea></label>
+      <label class="pc-field"><span>什麼情況 roll</span><textarea data-pf="rollCond" rows="2"></textarea></label>
+      <label class="pc-field"><span>停損提醒價（選填）</span><input type="number" step="any" data-pf="stop"></label>
+      <label class="pc-field"><span>目標提醒價（選填）</span><input type="number" step="any" data-pf="target"></label>
+    </div>
+    <div id="planWarn"></div>
+    <div class="pc-foot"><span class="x-sub" id="planWhen"></span><button class="ghost" data-plan-cancel="1">清空</button><button class="primary" data-plan-save="1">存檔</button></div>
+  </div><datalist id="planSyms"></datalist>`;
+  let draft = null; try { draft = JSON.parse(store.get('planDraft', 'null')); } catch { /* 草稿壞了就算了 */ }
+  fillPlanForm(draft);
+}
+function savePlan() {
+  const f = readPlanForm(), c = calc();
+  if (!f.sym) { el('planForm').querySelector('[data-pf="sym"]').focus(); toast('先填標的'); return; }
+  if (!f.thesis.trim()) { el('planForm').querySelector('[data-pf="thesis"]').focus(); toast('寫一兩句為什麼要做'); return; }
+  const old = (data.plans || []).find(p => p.id === planEditId), amt = planAmount(f);
+  const num = k => parseFloat(f[k]) || null;
+  const p = { ...(old || { id: uid(), ts: Date.now(), created: today(), wait: RULES.wait, status: 'active' }),
+    sym: f.sym, action: f.action, qty: num('qty'), price: num('price'), exp: OPT_ACTIONS.has(f.action) ? f.exp || null : null,
+    amount: Math.round(amt) || null, pct: amt ? amt / c.totalUSD : null,
+    thesis: f.thesis.trim(), entry: f.entry.trim(), addCond: f.addCond.trim(), exitCond: f.exitCond.trim(), rollCond: f.rollCond.trim(),
+    stop: num('stop'), target: num('target') };
+  data.plans = [...(data.plans || []).filter(x => x !== old), p];
+  planEditId = null; store.set('planDraft', 'null'); fillPlanForm(null);
+  save(); updatePlanCalc(); window.renderExtras();
+  toast(old ? '計畫更新了' : `存好了，最早 ${planExec(p)} 可以下單`);
+}
+function editPlan(id) {
+  const p = (data.plans || []).find(x => x.id === id); if (!p) return;
+  planEditId = id; fillPlanForm(p); updatePlanCalc();
+  el('planForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function planTrades(p) {
+  // 照這份計畫執行的交易：同一個標的、在可以下單那天之後
+  const from = planExec(p), to = p.closedAt || '9999';
+  return data.transactions.filter(t => t.date >= from && t.date <= to &&
+    (((t.type === 'buy' || t.type === 'sell') && sameGroup(t.symbol, p.sym)) || (t.type === 'option' && sameGroup(occ(t.symbol)?.root || '', p.sym))));
+}
+function planItem(p) {
+  const st = planState(p), exec = planExec(p), wait = p.wait ?? RULES.wait;
+  const left = st === 'waiting' ? tradingDaysBetween(today(), exec) : 0;
+  const dots = st === 'waiting' ? `<span class="pl-dots" title="還要 ${left} 個交易日">${Array.from({ length: wait }, (_, i) => `<i class="${i < wait - left ? 'on' : ''}"></i>`).join('')}</span>` : '';
+  const badge = { waiting: `<span class="pl-badge wait">還要 ${left} 天</span>`, ready: '<span class="pl-badge go">可以執行</span>',
+                  closed: '<span class="pl-badge">已完成</span>', void: '<span class="pl-badge">已作廢</span>' }[st];
+  const unit = OPT_ACTIONS.has(p.action) ? '口' : '股';
+  const line = (k, t) => p[k] ? `<div class="pl-line"><span>${t}</span><div>${esc(p[k])}</div></div>` : '';
+  const done = planTrades(p).length;
+  return `<details class="pl-item ${st}">
+    <summary>${badge}<span class="pl-title"><b>${esc(PLAN_ACTIONS[p.action] || '')} ${esc(p.sym)}</b>
+      ${p.qty ? `<span class="pl-qty">${p.qty} ${unit}${p.price ? ` @ <span class="x-money">${p.price}</span>` : ''}${p.exp ? `・${p.exp.slice(5).replace('-', '/')} 到期` : ''}</span>` : ''}</span>
+      ${dots}<span class="pl-date">${st === 'waiting' ? `${exec.slice(5).replace('-', '/')} 起` : p.created.slice(5).replace('-', '/') + ' 寫'}</span></summary>
+    <div class="pl-body">
+      ${p.thesis ? `<div class="pl-thesis">${esc(p.thesis)}</div>` : ''}
+      ${line('entry', '進場')}${line('addCond', '加碼')}${line('exitCond', '出場')}${line('rollCond', 'Roll')}
+      ${p.stop || p.target ? `<div class="pl-line"><span>提醒</span><div>${p.stop ? `停損 <span class="x-money">${usd(p.stop)}</span>` : ''}${p.stop && p.target ? '・' : ''}${p.target ? `目標 <span class="x-money">${usd(p.target)}</span>` : ''}</div></div>` : ''}
+      <div class="x-sub" style="margin-top:6px">${p.created} 寫・最早 ${exec} 可以下單${p.amount ? `・金額 <span class="x-money">${usd0(p.amount)}</span>（佔總資產 <span class="x-money">${pctPlain(p.pct, 1)}</span>）` : ''}${done ? `・照計畫成交了 ${done} 筆` : ''}</div>
+      ${st === 'ready' ? '<div class="pl-tip">條件還成立就照計畫做；不成立就作廢，不要改計畫硬做。</div>' : ''}
+      <div class="plan-actions">${['waiting', 'ready'].includes(st)
+        ? `<button class="ghost" data-plan-edit="${p.id}">編輯</button><button class="ghost" data-plan-close="${p.id}">完成</button><button class="ghost" data-plan-void="${p.id}">作廢</button>`
+        : `<button class="ghost danger" data-plan-del="${p.id}">刪除</button>`}</div>
+    </div></details>`;
 }
 function renderPlans(c) {
-  const box = el('plansBox'); if (!box) return;
-  if (box.contains(document.activeElement) && document.activeElement.matches('input, textarea, select')) return;   // 正在輸入時不要重畫
-  const pos = positionsForPlans(c);
-  const closed = (data.plans || []).filter(p => p.status === 'closed' || !pos.some(x => x.sym === p.sym)).sort((a, b) => b.ts - a.ts);
-  const basisName = (p, x) => x.kind === 'stock' ? x.sym : p.basis === 'option' ? '選擇權價格' : `標的 ${occ(x.sym).root}`;
-  const rows = pos.map(x => {
-    const p = planOf(x.sym), editing = planEdit === x.sym;
-    let body;
-    if (editing) {
-      body = `<div class="plan-form">
-        <label class="plan-wide">為什麼買？（理由、看好什麼）<textarea data-pf="thesis" rows="2">${esc(p?.thesis || '')}</textarea></label>
-        ${x.kind === 'option' ? `<label>停損、目標依據 <select data-pf="basis"><option value="underlying" ${p?.basis !== 'option' ? 'selected' : ''}>標的股價（${occ(x.sym).root}）</option><option value="option" ${p?.basis === 'option' ? 'selected' : ''}>選擇權價格</option></select></label>` : ''}
-        <label>停損價 <input type="number" step="any" data-pf="stop" value="${p?.stop ?? ''}"></label>
-        <label>目標價 <input type="number" step="any" data-pf="target" value="${p?.target ?? ''}"></label>
-        <label>檢討日 <input type="date" data-pf="review" value="${p?.review ?? ''}"></label>
-        <div class="plan-wide plan-actions"><button class="primary" data-plan-save="${esc(x.sym)}">儲存計畫</button><button data-plan-cancel="1">取消</button>
-          ${p ? `<button class="ghost danger" data-plan-close="${esc(x.sym)}">結束這個計畫</button>` : ''}</div></div>`;
-    } else if (p) {
-      const st = planStatus(p, x), dir = isBullish(x) ? 1 : -1;
-      const dist = v => st.px && v ? pct((v / st.px - 1)) : '—';
-      const flags = st.out.map(f => f === 'stop' ? '<span class="x-badge danger">到停損了</span>' : f === 'target' ? '<span class="x-badge good">到目標了</span>' : '<span class="x-badge">該檢討了</span>').join(' ');
-      body = `<div class="plan-view">
-        ${p.thesis ? `<div class="plan-thesis">「${esc(p.thesis)}」</div>` : ''}
-        <div class="plan-meta">${p.stop ? `停損 ${usd(p.stop)} <span class="x-money">（距離 ${dist(p.stop)}）</span>` : '沒有設停損'}
-          ・${p.target ? `目標 ${usd(p.target)} <span class="x-money">（距離 ${dist(p.target)}）</span>` : '沒有設目標'}
-          ${p.review ? `・檢討日 ${p.review}` : ''}・依據 ${esc(basisName(p, x))}・${dir > 0 ? '看多' : '看空'}部位</div>
-        ${flags ? `<div style="margin-top:4px">${flags}</div>` : ''}
-        <div class="plan-actions"><button class="ghost" data-plan-edit="${esc(x.sym)}">編輯</button></div></div>`;
-    } else {
-      body = `<div class="plan-view"><span class="muted">還沒有計畫。</span><button class="ghost" data-plan-edit="${esc(x.sym)}">＋ 寫計畫</button></div>`;
-    }
-    return `<div class="plan-row"><div class="plan-name"><b>${esc(x.label)}</b><span class="x-sub">${x.kind === 'stock' ? '股票' : x.qty > 0 ? '買方' : '賣方'}</span></div>${body}</div>`;
-  }).join('');
-  box.innerHTML = (rows || '<div class="x-empty">目前沒有持股</div>') +
-    (closed.length ? `<details class="x-details" style="margin-top:10px"><summary>已結束的計畫（${closed.length}）</summary>${closed.map(p => `<div class="plan-row done">
-      <div class="plan-name"><b>${esc(p.label || p.sym)}</b><span class="x-sub">${new Date(p.ts).toISOString().slice(0, 10)} 建立${p.closedAt ? `・${p.closedAt} 結束` : ''}</span></div>
-      <div class="plan-view">${p.thesis ? `<div class="plan-thesis">「${esc(p.thesis)}」</div>` : ''}<div class="plan-meta">停損 ${p.stop ? usd(p.stop) : '—'}・目標 ${p.target ? usd(p.target) : '—'}</div>
-        <div class="plan-actions"><button class="ghost danger" data-plan-del="${p.id}">刪除</button></div></div></div>`).join('')}</details>` : '') +
-    '<div class="x-note">碰到停損、到達目標或到了檢討日，頁面上方會提醒你。停損是事先跟自己的約定：到了就照著做，不用重新說服自己。</div>';
-}
-function savePlan(sym) {
-  const box = el('plansBox'), v = k => box.querySelector(`[data-pf="${k}"]`)?.value ?? '';
-  const pos = positionsForPlans(calc()).find(x => x.sym === sym);
-  const old = planOf(sym);
-  const plan = { id: old?.id || uid(), ts: old?.ts || Date.now(), sym, label: pos?.label || sym, status: 'active',
-                 thesis: v('thesis').trim(), basis: v('basis') || 'underlying',
-                 stop: parseFloat(v('stop')) || null, target: parseFloat(v('target')) || null, review: v('review') || null };
-  data.plans = [...(data.plans || []).filter(p => p !== old), plan];
-  planEdit = null; save(); renderPlans(calc()); window.renderExtras(); toast('計畫存好了');
-}
-
-// ============ 我的交易規則 ============
-const RULE_TYPES = {
-  optSize: { p: 5, text: p => `單筆選擇權最多投入淨資產 ${p}%`, unit: '%' },
-  lev: { p: 2, text: p => `槓桿率不超過 ${p} 倍`, unit: '倍' },
-  lossDay: { p: 2.5, text: p => `單日跌幅超過 ${p}% 的當天和隔天，不開新倉`, unit: '%' },
-  noDayTrade: { text: () => '不做當天沖銷（股票、選擇權都是）' },
-  minDte: { p: 8, text: p => `選擇權只做 ${p} 天以上到期的合約`, unit: '天' },
-  journal: { text: () => '有交易的日子就寫一篇日記' },
-  custom: { text: (p, r) => r.text },
-};
-const ruleText = r => RULE_TYPES[r.type]?.text(r.p, r) || r.text || '';
-const activeRules = () => (data.rules || []).filter(r => r.on !== false);
-function ruleContext() {
-  // 檢查規則要用到的資料：每天報酬、每天收盤淨資產、開倉紀錄
-  const hist = data.history, rets = dailyReturns(hist), retOn = Object.fromEntries(rets.map(x => [x.date, x.r]));
-  const dates = hist.map(h => h.date), prevOf = {};
-  dates.forEach((d, i) => { if (i) prevOf[d] = dates[i - 1]; });
-  const eqBefore = d => { let v = null; for (const h of hist) { if (h.date < d) v = h.usd; else break; } return v; };
-  const opens = [];
-  for (const t of data.transactions) {
-    if (t.type === 'buy' && t.note !== '股息再投入') opens.push({ date: t.date, kind: 'stock', sym: t.symbol, label: `買 ${t.symbol}` });
-    else if (t.type === 'option' && t.action === 'open') opens.push({ date: t.date, kind: 'option', sym: t.symbol, qty: t.qty, amount: t.amount, label: `${t.qty > 0 ? '買' : '賣'} ${optName(t.symbol)}` });
-  }
-  return { hist, retOn, prevOf, eqBefore, opens };
-}
-function checkRule(r, ctx, c) {
-  const y = String(new Date().getFullYear()), since = d => d.startsWith(y);
-  const res = { now: null, total: 0, bad: [] };   // now：目前是否違反（null 代表不適用）
-  if (r.type === 'optSize') {
-    const groups = {};
-    for (const o of ctx.opens) if (o.kind === 'option' && o.qty > 0 && since(o.date)) { const k = o.date + o.sym; (groups[k] ??= { ...o, cost: 0 }).cost += -o.amount; }
-    for (const g of Object.values(groups)) {
-      const eq = ctx.eqBefore(g.date); if (!eq) continue;
-      res.total++; if (g.cost / eq * 100 > r.p) res.bad.push({ date: g.date, what: `${g.label}：投入淨資產 ${pctPlain(g.cost / eq, 1)}` });
-    }
-    res.now = c.optRows.some(o => o.qty > 0 && o.value / c.totalUSD * 100 > r.p);
-  } else if (r.type === 'lev') {
-    for (const h of ctx.hist) if (since(h.date) && h.exp != null && h.usd > 0) { res.total++; if (h.exp / h.usd > r.p) res.bad.push({ date: h.date, what: `收盤槓桿率 ${(h.exp / h.usd).toFixed(2)}x` }); }
-    res.now = c.leverage != null && c.leverage > r.p;
-  } else if (r.type === 'lossDay') {
-    const days = [...new Set(ctx.opens.filter(o => since(o.date)).map(o => o.date))];
-    for (const d of days) {
-      res.total++;
-      const today_ = ctx.retOn[d], prev = ctx.retOn[ctx.prevOf[d]];
-      if ((today_ != null && today_ * 100 <= -r.p) || (prev != null && prev * 100 <= -r.p))
-        res.bad.push({ date: d, what: `${today_ != null && today_ * 100 <= -r.p ? '當天' : '前一天'}帳戶跌 <span class="x-money">${pct(today_ != null && today_ * 100 <= -r.p ? today_ : prev)}</span>，仍開了新倉（${ctx.opens.filter(o => o.date === d).map(o => o.label).slice(0, 3).join('、')}）` });
-    }
-    const base = c.totalUSD - c.day; res.now = base > 0 && c.day / base * 100 <= -r.p;
-  } else if (r.type === 'noDayTrade') {
-    const st = realizedStats();
-    const ev = stockHoldingEvents(st).map(e => ({ ...e, k: '股票' })).concat(optionLifeEvents(st).map(e => ({ ...e, k: '選擇權' }))).filter(e => since(e.date));
-    for (const e of ev) { res.total++; if (e.hold < 0.5) res.bad.push({ date: e.date, what: `${e.k} ${e.k === '股票' ? e.sym : optName(e.sym)} 當天買賣` }); }
-  } else if (r.type === 'minDte') {
-    for (const o of ctx.opens) if (o.kind === 'option' && since(o.date)) {
-      const dte = days(o.date, occ(o.sym).exp); res.total++;
-      if (dte < r.p) res.bad.push({ date: o.date, what: `${o.label}：開倉時只剩 ${dte} 天到期` });
-    }
-  } else if (r.type === 'journal') {
-    const start = new Date(r.ts || Date.now()).toISOString().slice(0, 10), written = new Set((data.journal || []).map(j => j.date));
-    for (const d of [...new Set(ctx.opens.map(o => o.date))].filter(d => d >= start)) { res.total++; if (!written.has(d)) res.bad.push({ date: d, what: '有交易但沒寫日記' }); }
-  } else return null;   // 自訂規則不自動檢查
-  res.bad.sort((a, b) => b.date.localeCompare(a.date));
-  return res;
-}
-function renderRules(c) {
-  const box = el('rulesBox'); if (!box) return;
-  if (box.contains(document.activeElement) && document.activeElement.matches('input')) return;
-  const rules = data.rules || [], ctx = ruleContext();
-  const results = rules.map(r => ({ r, res: r.on === false ? null : checkRule(r, ctx, c) }));
-  const breaking = results.filter(x => x.res?.now).length;
-  el('rulesNote').textContent = rules.length ? (breaking ? `${breaking} 條規則目前違反中` : '目前都有遵守') : '';
-  const list = results.map(({ r, res }) => {
-    const rate = res && res.total ? 1 - res.bad.length / res.total : null;
-    return `<div class="rule-row ${r.on === false ? 'off' : ''}">
-      <div class="rule-main"><b>${esc(ruleText(r))}</b>
-        <span class="x-sub">${r.on === false ? '已停用' : res == null ? '自訂規則：下單前檢查時會列出來提醒你' :
-          `${res.now === true ? '<span class="x-badge danger">目前違反中</span> ' : res.now === false ? '<span class="x-badge good">目前有遵守</span> ' : ''}今年遵守率 <b>${rate == null ? '—' : pctPlain(rate)}</b>（${res.total} 次裡有 ${res.bad.length} 次違反）`}</span>
-        ${res && res.bad.length ? `<details class="x-details"><summary>看違反的紀錄</summary>${res.bad.slice(0, 30).map(b => `<div class="rule-bad"><span>${b.date}</span> ${esc(b.what).replace(/&lt;span class=&quot;x-money&quot;&gt;(.*?)&lt;\/span&gt;/g, '<span class="x-money">$1</span>')}</div>`).join('')}${res.bad.length > 30 ? '<div class="x-sub">…只列最近 30 筆</div>' : ''}</details>` : ''}</div>
-      <div class="rule-actions"><button class="ghost" data-rule-toggle="${r.id}">${r.on === false ? '啟用' : '停用'}</button><button class="ghost danger" data-rule-del="${r.id}">✕</button></div></div>`;
-  }).join('');
-  const have = new Set(rules.map(r => r.type));
-  const templates = Object.entries(RULE_TYPES).filter(([t]) => t !== 'custom' && !have.has(t));
-  box.innerHTML = (list || '<div class="x-empty">還沒有規則。從下面挑幾條，或寫一條你自己的。</div>') + `
-    <div class="rule-add">
-      ${templates.length ? `<div class="x-sub" style="margin-bottom:6px">從範本加入（數字可以改）：</div>
-        ${templates.map(([t, d]) => `<div class="rule-tpl"><span>${d.unit ? d.text('<input type="number" step="any" data-rule-p="' + t + '" value="' + d.p + '">') : d.text()}</span><button data-rule-add="${t}">＋ 加入</button></div>`).join('')}` : ''}
-      <div class="rule-tpl"><input id="ruleCustom" placeholder="自訂規則，例如：財報前不買短天期 call"><button data-rule-add="custom">＋ 加入</button></div>
-    </div>
-    <div class="x-note">遵守率是用你今年的交易紀錄回頭檢查的。「有交易就寫日記」從加入規則那天開始算。你的規則也會出現在下單前檢查的清單裡。</div>`;
+  buildPlanComposer(c);
+  const dl = el('planSyms'); if (dl) dl.innerHTML = heldSyms(c).map(s => `<option value="${esc(s)}">`).join('');
+  if (el('planForm') && !el('planForm').contains(document.activeElement)) updatePlanCalc();
+  const box = el('planList'); if (!box) return;
+  const plans = (data.plans || []).filter(p => p.created).sort((a, b) => b.ts - a.ts);
+  const ready = plans.filter(p => planState(p) === 'ready'), waiting = plans.filter(p => planState(p) === 'waiting');
+  const old = plans.filter(p => ['closed', 'void'].includes(planState(p)));
+  const group = (t, arr) => arr.length ? `<div class="pl-group"><div class="pl-group-h">${t}（${arr.length}）</div>${arr.map(planItem).join('')}</div>` : '';
+  box.innerHTML = (ready.length || waiting.length ? group('可以執行', ready) + group('等待中', waiting) : '<div class="x-empty" style="padding:16px 0">還沒有進行中的計畫</div>')
+    + (old.length ? `<details class="x-details pl-old"><summary>已完成、作廢的計畫（${old.length}）</summary>${old.map(planItem).join('')}</details>` : '')
+    + `<div class="x-note">守則：① 不做選擇權買方 ② 新交易先寫計畫，寫完等 ${RULES.wait} 個交易日才下單，計畫裡寫好的加碼、出場、roll 不用再等 ③ 單一個股最多 ${RULES.cap}%，超過 ${RULES.trim}% 減碼回 ${RULES.cap}%（sell put 以履約價 × 100 計算，大盤型 ETF 不受限，禁止個股型槓桿 ETF）。</div>`;
+  el('plansNote').textContent = ready.length ? `${ready.length} 份可以執行` : waiting.length ? `${waiting.length} 份等待中` : '';
 }
 
 // ============ 選擇權部位風險 ============
@@ -845,7 +744,7 @@ function renderOptRisk(c) {
     let duty = '—';
     if (o.qty < 0 && !oc.call) {
       const need = oc.strike * 100 * Math.abs(o.qty);
-      duty = `被指派要付 ${usd0(need)}<span class="x-sub">${need > c.cashUSD ? `現金不足 ${usd0(need - Math.max(c.cashUSD, 0))}，會用到融資` : '現金足夠'}</span>`;
+      duty = `被指派要付 <span class="x-money">${usd0(need)}</span><span class="x-sub">${need > c.cashUSD ? `現金不足 <span class="x-money">${usd0(need - Math.max(c.cashUSD, 0))}</span>，會用到融資` : '現金足夠'}</span>`;
     } else if (o.qty < 0 && oc.call) {
       const need = 100 * Math.abs(o.qty), have = data.holdings[oc.root]?.shares || 0;
       duty = `被指派要交 ${need} 股<span class="x-sub">${have >= need ? `已持有 ${have} 股（有掩護）` : `只持有 ${have} 股（無掩護，風險無上限）`}</span>`;
@@ -855,7 +754,7 @@ function renderOptRisk(c) {
       <td class="l"><b>${esc(optName(o.sym))}</b><span class="x-sub">${o.qty > 0 ? '買方' : '賣方'} ${Math.abs(o.qty)} 口・IV ${iv ? pctPlain(iv) : '—'}</span></td>
       <td class="num">${dte <= 0 ? '今天' : dte + ' 天'}</td>
       <td class="num">${S ? usd(S) : '—'}<span class="x-sub">履約 ${usd(oc.strike)}</span></td>
-      <td><span class="x-badge ${warn}">${state}</span><span class="x-sub">${money == null ? '' : pct(money)}</span></td>
+      <td><span class="x-badge ${warn}">${state}</span><span class="x-sub">${money == null ? '' : `<span class="x-money">${pct(money)}</span>`}</span></td>
       <td class="num">${usd(be)}</td>
       <td class="num">${ex ? pctPlain(ex.pItm) : '—'}</td>
       <td class="num ${cls(theta)}">${theta == null ? '—' : usd(theta, { sign: true })}</td>
@@ -1106,90 +1005,72 @@ window.renderExtras = function renderExtras(c) {
   c = c || calc();
   applyTab(); applyPrivacy(); applyCalm();
   try { renderProgress(c); } catch (err) { console.error('progress', err); }
-  const expo = exposureGroups(c);
-  renderAlertBar(computeAlerts(c, expo));
+  try { renderAlertBar(computeAlerts(c)); } catch (err) { console.error('alerts', err); }
   const safe = (name, fn) => { try { fn(); } catch (err) { console.error(name, err); const b = el(name); if (b) b.innerHTML = `<div class="x-empty">這個區塊出錯了：${esc(err.message)}</div>`; } };
-  if (curTab === 'overview') { safe('contribBox', () => renderContrib(c)); safe('plansBox', () => renderPlans(c)); safe('eventsBox', () => renderEvents(c)); }
+  if (curTab === 'overview') { safe('planList', () => renderPlans(c)); safe('eventsBox', () => renderEvents(c)); }
   if (curTab === 'perf') { safe('metricsBox', renderMetrics); safe('heatBox', renderHeat); }
-  if (curTab === 'risk') { safe('exposureBox', () => renderExposure(c, expo)); safe('stressBox', () => renderStress(c)); safe('optRiskBox', () => renderOptRisk(c)); safe('checkBox', () => renderCheck(c)); safe('rulesBox', () => renderRules(c)); safe('alertSettings', renderAlertSettings); }
+  if (curTab === 'risk') { safe('exposureBox', () => renderExposure(c)); safe('etfBox', () => renderEtfView(c)); safe('optRiskBox', () => renderOptRisk(c)); }
   if (curTab === 'trade') { safe('journalBox', renderJournal); safe('analysisBox', renderAnalysis); safe('monthlyBox', renderMonthly); safe('feeBox', renderFees); }
 };
 
 // ============ 事件 ============
+const confirmClick = (b, label) => {
+  // 第一次按只是確認，3 秒內再按一次才執行
+  if (b.dataset.confirm) return true;
+  b.dataset.confirm = '1'; b.textContent = '確定？';
+  setTimeout(() => { if (b.isConnected) { delete b.dataset.confirm; b.textContent = label; } }, 3000);
+  return false;
+};
+const setPlan = (id, status) => {
+  const p = (data.plans || []).find(x => x.id === id); if (!p) return;
+  p.status = status; p.closedAt = today();
+  if (planEditId === id) { planEditId = null; fillPlanForm(null); }
+  save(); window.renderExtras();
+};
+function lookupEtf() {
+  const v = el('etfLookup').value.trim().toUpperCase();
+  if (!/^[A-Z.\-]{1,10}$/.test(v)) return;
+  etfView = v; store.set('etfView', v); el('etfLookup').blur(); renderEtfView(calc());
+}
 document.addEventListener('click', e => {
+  const a = e.target.closest('a[data-tab]');
+  if (a) { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) { e.preventDefault(); showTab(a.dataset.tab); } return; }
   const b = e.target.closest('button'); if (!b) return;
-  if (b.dataset.tab) showTab(b.dataset.tab);
-  else if (b.id === 'privacyBtn') { store.set('privacy', store.get('privacy', '0') === '1' ? '0' : '1'); applyPrivacy(); }
+  if (b.id === 'privacyBtn') { store.set('privacy', store.get('privacy', '0') === '1' ? '0' : '1'); applyPrivacy(); }
   else if (b.id === 'calmBtn') { store.set('calm', isCalm() ? '0' : '1'); peek(false); applyCalm(); render(); }
   else if (b.id === 'peekBtn') peek(!document.documentElement.classList.contains('peek'));
-  else if (b.dataset.ckType) { ck.type = b.dataset.ckType; store.set('ck.type', ck.type); renderCheck(calc()); }
   else if (b.dataset.mood) { jMood = b.dataset.mood; renderJournal(); }
-  else if (b.dataset.planEdit) { planEdit = b.dataset.planEdit; renderPlans(calc()); el('plansBox').querySelector('[data-pf="thesis"]')?.focus(); }
-  else if (b.dataset.planCancel) { planEdit = null; renderPlans(calc()); }
-  else if (b.dataset.planSave) savePlan(b.dataset.planSave);
-  else if (b.dataset.planClose) {
-    const p = planOf(b.dataset.planClose);
-    if (p) { p.status = 'closed'; p.closedAt = today(); }
-    planEdit = null; save(); renderPlans(calc()); window.renderExtras();
-  }
-  else if (b.dataset.planDel) {
-    if (!b.dataset.confirm) { b.dataset.confirm = '1'; b.textContent = '確定刪除？'; setTimeout(() => { if (b.isConnected) { delete b.dataset.confirm; b.textContent = '刪除'; } }, 3000); return; }
-    data.plans = (data.plans || []).filter(p => p.id !== b.dataset.planDel); save(); renderPlans(calc());
-  }
-  else if (b.dataset.ruleAdd) {
-    const t = b.dataset.ruleAdd, r = { id: uid(), ts: Date.now(), type: t, on: true };
-    if (t === 'custom') { r.text = el('ruleCustom').value.trim(); if (!r.text) { el('ruleCustom').focus(); return; } }
-    else if (RULE_TYPES[t].unit) r.p = parseFloat(document.querySelector(`[data-rule-p="${t}"]`)?.value) || RULE_TYPES[t].p;
-    data.rules = [...(data.rules || []), r]; save(); renderRules(calc()); renderCheck(calc()); toast('規則加好了');
-  }
-  else if (b.dataset.ruleToggle) {
-    const r = (data.rules || []).find(x => x.id === b.dataset.ruleToggle); if (r) r.on = r.on === false;
-    save(); renderRules(calc()); renderCheck(calc());
-  }
-  else if (b.dataset.ruleDel) {
-    if (!b.dataset.confirm) { b.dataset.confirm = '1'; b.textContent = '確定刪除？'; setTimeout(() => { if (b.isConnected) { delete b.dataset.confirm; b.textContent = '✕'; } }, 3000); return; }
-    data.rules = (data.rules || []).filter(r => r.id !== b.dataset.ruleDel); save(); renderRules(calc()); renderCheck(calc());
-  }
+  else if (b.dataset.pfAct) { el('planForm').querySelector('[data-pf="action"]').value = b.dataset.pfAct; updatePlanCalc(); }
+  else if (b.dataset.planSave) savePlan();
+  else if (b.dataset.planCancel) { planEditId = null; fillPlanForm(null); store.set('planDraft', 'null'); updatePlanCalc(); }
+  else if (b.dataset.planEdit) editPlan(b.dataset.planEdit);
+  else if (b.dataset.planClose) setPlan(b.dataset.planClose, 'closed');
+  else if (b.dataset.planVoid) { if (confirmClick(b, '作廢')) setPlan(b.dataset.planVoid, 'void'); }
+  else if (b.dataset.planDel) { if (confirmClick(b, '刪除')) { data.plans = (data.plans || []).filter(p => p.id !== b.dataset.planDel); save(); renderPlans(calc()); } }
+  else if (b.dataset.expoAll) { expoAll = !expoAll; renderExposure(calc()); }
+  else if (b.dataset.etf) { etfView = b.dataset.etf; store.set('etfView', etfView); renderEtfView(calc()); }
+  else if (b.id === 'etfLookupBtn') lookupEtf();
   else if (b.id === 'jSave') {
     const text = el('jText').value.trim();
     if (!text) { el('jText').focus(); return; }
     data.journal = [...(data.journal || []), { id: uid(), date: today(), ts: Date.now(), mood: jMood, sym: el('jSym').value.trim().toUpperCase(), text }];
     save(); el('jText').value = ''; el('jSym').value = ''; renderJournal(); toast('記下來了');
   }
-  else if (b.dataset.jdel) {
-    if (!b.dataset.confirm) { b.dataset.confirm = '1'; b.textContent = '確定刪除？'; setTimeout(() => { if (b.isConnected) { delete b.dataset.confirm; b.textContent = '✕'; } }, 3000); return; }
-    data.journal = (data.journal || []).filter(j => j.id !== b.dataset.jdel); save(); renderJournal();
-  }
+  else if (b.dataset.jdel) { if (confirmClick(b, '✕')) { data.journal = (data.journal || []).filter(j => j.id !== b.dataset.jdel); save(); renderJournal(); } }
   else if (b.dataset.x === 'metrics') { metricsRange = b.dataset.v; store.set('metricsRange', metricsRange); renderMetrics(); }
   else if (b.dataset.ana) { anaView = b.dataset.ana; store.set('anaView', anaView); renderAnalysis(); }
   else if (b.dataset.anaall) { anaShowAll = !anaShowAll; renderAnalysis(); }
-  else if (b.dataset.stress) { stressMove = +b.dataset.stress; for (const k in stressGroup) delete stressGroup[k]; store.set('stressMove', stressMove); renderStress(calc()); }
   else if (b.dataset.dismiss != null) {
     const key = 'dismiss.' + today(), set = new Set((store.get(key, '') || '').split('|').filter(Boolean));
     set.add(b.dataset.dismiss); store.set(key, [...set].join('|')); window.renderExtras();
   }
 });
-document.addEventListener('input', e => {
-  const t = e.target;
-  if (t.id === 'stressRange') { stressMove = +t.value; for (const k in stressGroup) delete stressGroup[k]; store.set('stressMove', stressMove); renderStress(calc()); }
-  else if (t.dataset.sgroup) { stressGroup[t.dataset.sgroup] = +t.value; renderStress(calc()); }
-  else if (t.dataset.ck) {
-    const k = t.dataset.ck; ck[k] = ['risk', 'optPct'].includes(k) ? +t.value : t.value;
-    if (k === 'sym') { const q = quotes[t.value.trim().toUpperCase()]; const e = document.querySelector('[data-ck="entry"]'); if (q?.price && !e.value) { e.value = q.price; ck.entry = String(q.price); } }
-    if (k === 'risk' || k === 'optPct') store.set('ck.' + k, t.value);
-    renderCheck(calc());
-  }
-});
+document.addEventListener('input', e => { if (e.target.closest('#planForm')) updatePlanCalc(); });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'etfLookup') lookupEtf(); });
 document.addEventListener('change', e => {
   const t = e.target;
-  if (t.id === 'outsideFlowChk') { store.set('outsideAsFlow', t.checked ? '1' : '0'); renderMetrics(); renderHeat(); renderProgress(calc()); return; }
-  if (t.dataset.ckItem != null) { if (t.checked) ck.checks.add(t.dataset.ckItem); else ck.checks.delete(t.dataset.ckItem); renderCheck(calc()); return; }
-  if (!t.dataset.alert) return;
-  const a = { ...alertCfg() };
-  a[t.dataset.alert] = t.type === 'checkbox' ? t.checked : +t.value;
-  if (t.dataset.alert === 'notify' && t.checked && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
-  data.settings.alerts = a; save(); window.renderExtras();
+  if (t.id === 'outsideFlowChk') { store.set('outsideAsFlow', t.checked ? '1' : '0'); renderMetrics(); renderHeat(); renderProgress(calc()); }
 });
-window.addEventListener('hashchange', () => { const t = location.hash.slice(1); if (TABS.includes(t)) showTab(t); });
+window.addEventListener('popstate', () => showTab(tabOfPath(), false));
 window.addEventListener('resize', () => { clearTimeout(window._rzx); window._rzx = setTimeout(() => window.renderExtras(), 200); });
 })();

@@ -223,7 +223,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 
   <!-- 分頁 -->
   <nav class="tab-nav" id="tabNav">
-    <button data-tab="overview">總覽</button><button data-tab="perf">績效</button><button data-tab="risk">風險</button><button data-tab="trade">交易</button>
+    <a href="/overview" data-tab="overview">總覽</a><a href="/performance" data-tab="perf">績效</a><a href="/risk" data-tab="risk">風險</a><a href="/trades" data-tab="trade">交易</a>
   </nav>
 
   <section data-panel="overview">
@@ -256,14 +256,10 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <div class="muted" style="font-size:12px;margin-top:8px" id="optNote"></div>
   </div>
 
-  <div class="card" id="contribCard">
-    <div class="card-head"><h2>今日損益貢獻</h2><span class="muted" style="font-size:12px" id="contribNote"></span></div>
-    <div id="contribBox"></div>
-  </div>
-
   <div class="card" id="plansCard">
-    <div class="card-head"><h2>部位計畫</h2><span class="muted" style="font-size:12px">先寫好理由、停損和目標，之後照計畫走</span></div>
-    <div id="plansBox"></div>
+    <div class="card-head"><h2>交易計畫</h2><span class="muted" style="font-size:12px" id="plansNote"></span></div>
+    <div id="planComposer"></div>
+    <div id="planList"></div>
   </div>
 
   <div class="card" id="eventsCard">
@@ -316,23 +312,13 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 
   <section data-panel="risk" hidden>
   <div class="card" id="exposureCard">
-    <div class="card-head"><h2>依標的彙總曝險</h2><span class="muted" style="font-size:12px" id="exposureNote"></span></div>
+    <div class="card-head"><h2>個股曝險總覽</h2><span class="muted" style="font-size:12px" id="exposureNote"></span></div>
     <div id="exposureBox"></div>
   </div>
 
-  <div class="card" id="stressCard">
-    <div class="card-head"><h2>壓力測試</h2><span class="muted" style="font-size:12px">模擬標的價格變動後的淨資產</span></div>
-    <div id="stressBox"></div>
-  </div>
-
-  <div class="card" id="checkCard">
-    <div class="card-head"><h2>下單前檢查</h2><span class="muted" style="font-size:12px">先算好最多能買多少，再下單</span></div>
-    <div id="checkBox"></div>
-  </div>
-
-  <div class="card" id="rulesCard">
-    <div class="card-head"><h2>我的交易規則</h2><span class="muted" style="font-size:12px" id="rulesNote"></span></div>
-    <div id="rulesBox"></div>
+  <div class="card" id="etfCard">
+    <div class="card-head"><h2>ETF 成分股</h2><span class="muted" style="font-size:12px">每 100 元的 ETF 裡，各買了多少錢的哪家公司</span></div>
+    <div id="etfBox"></div>
   </div>
 
   <div class="card" id="optRiskCard">
@@ -351,11 +337,6 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <div class="legend" id="levStats"></div>
     <div class="chart-box" id="levBox"></div>
     <div class="compare-note">槓桿率 = 曝險 ÷ 淨資產。槓桿 ETF 依倍數計入；買方選擇權以 delta 計算曝險（過去以標的 30 日實際波動率估算，今天用即時報價反推）；賣方選擇權（sell call／sell put）不計入。</div>
-  </div>
-
-  <div class="card" id="alertCard">
-    <div class="card-head"><h2>警示設定</h2><span class="muted" style="font-size:12px">超過門檻時在頁面上方提醒</span></div>
-    <div id="alertSettings"></div>
   </div>
   </section>
 

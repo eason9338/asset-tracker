@@ -7,3 +7,6 @@ backups/
 diagnostics/*.log
 __pycache__/
 .DS_Store
+
+# 網路資料快取
+cache/

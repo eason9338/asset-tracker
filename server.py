@@ -4,9 +4,11 @@
 啟動：python3 server.py   然後打開 http://localhost:8765
 資料存在同資料夾的 data.json（每次存檔前會備份到 backups/）。
 """
+import html as htmllib
 import http.cookiejar
 import json
 import os
+import re
 import shutil
 import sys
 import threading
@@ -21,7 +23,11 @@ PORT = int(os.environ.get("PORT", 8765))
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(BASE, "data.json")
 BACKUP_DIR = os.path.join(BASE, "backups")
+CACHE_DIR = os.path.join(BASE, "cache")
 UA = "Mozilla/5.0"
+
+# 各分頁的網址（都用同一份 index.html，由網頁依網址顯示對應的分頁）
+PAGES = ("/", "/index.html", "/overview", "/performance", "/risk", "/trades")
 
 STATIC_FILES = {
     "analytics.js": "application/javascript; charset=utf-8",
@@ -363,6 +369,76 @@ def fetch_events(symbols):
     return out
 
 
+# ---------- ETF 成分股（Zacks 的持股頁，一天更新一次） ----------
+ETF_TTL = 24 * 3600
+ETF_FILE = os.path.join(CACHE_DIR, "etf-holdings.json")
+_etf_lock = threading.Lock()
+try:
+    with open(ETF_FILE, encoding="utf-8") as f:
+        _etf_cache = json.load(f)   # symbol -> {"ts":..., "data":{...}}
+except (OSError, ValueError):
+    _etf_cache = {}
+
+
+def _zacks_holdings(sym):
+    url = f"https://www.zacks.com/funds/etf/{urllib.parse.quote(sym)}/holding"
+    raw = urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20).read()
+    m = re.search(r"etf_holdings\.formatted_data\s*=\s*(\[.*?\]);", raw.decode("utf-8", "replace"), re.S)
+    if not m:
+        raise ValueError("找不到成分股資料")
+    rows = []
+    for r in json.loads(m.group(1)):
+        w = _num(str(r[3]).replace(",", ""))
+        if w is None:
+            continue
+        t = re.search(r'rel="([^"]+)"', r[1])
+        title = re.search(r'title="([^"]+)"', r[0])
+        name = htmllib.unescape(title.group(1) if title else re.sub(r"<[^>]+>", "", r[0])).strip()
+        rows.append({"sym": t.group(1).replace("/", ".").upper() if t else None, "name": name, "w": round(w, 4)})
+    rows.sort(key=lambda x: -x["w"])
+    stock_w, all_w = sum(x["w"] for x in rows if x["sym"]), sum(x["w"] for x in rows)
+    # 大多是交換合約、選擇權的（槓桿 ETF、BOXX）不拆成分股
+    return {"count": len(rows), "stocks": all_w > 0 and stock_w >= 0.8 * all_w,
+            "top": rows[:50], "topSum": round(sum(x["w"] for x in rows[:50]), 2), "source": "Zacks"}
+
+
+def fetch_etf_holdings(symbols):
+    now, out, todo = time.time(), {}, []
+    for s in symbols:
+        hit = _etf_cache.get(s)
+        if hit and now - hit["ts"] < ETF_TTL:
+            out[s] = {**hit["data"], "fetched": hit["ts"]}
+        else:
+            todo.append(s)
+    if todo:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def one(s):
+            try:
+                return s, _zacks_holdings(s), None
+            except Exception as e:  # noqa: BLE001
+                return s, None, str(e)
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            results = list(ex.map(one, todo))
+        with _etf_lock:
+            for s, d, err in results:
+                if d:
+                    _etf_cache[s] = {"ts": now, "data": d}
+                    out[s] = {**d, "fetched": now}
+                elif s in _etf_cache:   # 抓不到就先用舊的
+                    out[s] = {**_etf_cache[s]["data"], "fetched": _etf_cache[s]["ts"], "stale": True}
+                else:
+                    out[s] = {"error": err}
+            try:
+                os.makedirs(CACHE_DIR, exist_ok=True)
+                with open(ETF_FILE + ".tmp", "w", encoding="utf-8") as f:
+                    json.dump(_etf_cache, f, ensure_ascii=False)
+                os.replace(ETF_FILE + ".tmp", ETF_FILE)
+            except OSError:
+                pass
+    return out
+
+
 _hist_cache = {}  # (symbol, from) -> (timestamp, {date: close})
 
 
@@ -451,7 +527,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
-        if u.path in ("/", "/index.html"):
+        if u.path in PAGES:
             with open(os.path.join(BASE, "index.html"), "rb") as f:
                 return self._send(200, f.read(), "text/html; charset=utf-8")
         # 網頁用到的其他檔案（只開放清單內的，不會把 data.json 之類的檔案送出去）
@@ -473,6 +549,10 @@ class Handler(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(u.query).get("symbols", [""])[0]
             symbols = [s.strip().upper() for s in q.split(",") if s.strip()][:40]
             return self._send(200, fetch_events(symbols) if symbols else {})
+        if u.path == "/api/etf-holdings":
+            q = urllib.parse.parse_qs(u.query).get("symbols", [""])[0]
+            symbols = [s.strip().upper() for s in q.split(",") if re.fullmatch(r"[A-Za-z.\-]{1,10}", s.strip())][:12]
+            return self._send(200, fetch_etf_holdings(symbols) if symbols else {})
         if u.path == "/api/history":
             qs = urllib.parse.parse_qs(u.query)
             symbols = [x.strip().upper() for x in qs.get("symbols", [""])[0].split(",") if x.strip()][:120]
