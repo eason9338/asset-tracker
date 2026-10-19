@@ -1,0 +1,26 @@
+<!-- 績效：報酬率比較、風險報酬指標、每月報酬 -->
+<div class="col span-7">
+  <div class="card">
+    <div class="card-head">
+      <h2>報酬率比較 <span class="muted" style="font-weight:400;font-size:12px">（時間加權，美元計價）</span></h2>
+      <span class="seg" id="cmpRangeSeg"><button data-crange="30">1月</button><button data-crange="90">3月</button><button data-crange="180">6月</button><button data-crange="ytd">今年</button><button data-crange="365">1年</button><button data-crange="0">全部</button></span>
+    </div>
+    <div class="legend" id="cmpLegend"></div>
+    <div class="chart-box tall" id="cmpBox"></div>
+    <div class="compare-note" id="cmpNote"></div>
+  </div>
+</div>
+<div class="col span-5">
+  <div class="card" id="metricsCard">
+    <div class="card-head"><h2>風險報酬指標</h2><span class="seg" data-xseg="metrics"><button data-x="metrics" data-v="30">1月</button><button data-x="metrics" data-v="90">3月</button><button data-x="metrics" data-v="180">6月</button><button data-x="metrics" data-v="ytd">今年</button><button data-x="metrics" data-v="365">1年</button><button data-x="metrics" data-v="0">全部</button></span></div>
+    <div id="metricsBox"></div>
+    <div class="chart-box" id="ddBox" style="height:160px;margin-top:12px"></div>
+    <div class="compare-note" id="metricsNote"></div>
+  </div>
+</div>
+<div class="col span-12">
+  <div class="card" id="heatCard">
+    <div class="card-head"><h2>每月報酬</h2><span class="muted" style="font-size:12px">時間加權・美元計價</span></div>
+    <div id="heatBox"></div>
+  </div>
+</div>

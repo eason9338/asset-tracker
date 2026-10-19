@@ -123,26 +123,8 @@ function lineChart(box, pts, { fmtY, fmtTip, color = 'var(--accent)', zero = fal
   hit.addEventListener('pointerleave', () => { cx.setAttribute('visibility', 'hidden'); cd.setAttribute('visibility', 'hidden'); tip.hidden = true; });
 }
 
-// ============ 分頁：每個分頁有自己的網址 ============
-const TABS = ['overview', 'perf', 'risk', 'trade'];
-const TAB_PATH = { overview: '/overview', perf: '/performance', risk: '/risk', trade: '/trades' };
-const TAB_TITLE = { overview: '總覽', perf: '績效', risk: '風險', trade: '交易' };
-const tabOfPath = () => TABS.find(t => TAB_PATH[t] === location.pathname) || (TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'overview');
-let curTab = tabOfPath();
-if (location.pathname !== TAB_PATH[curTab] && location.pathname !== '/') history.replaceState(null, '', TAB_PATH[curTab]);
-else if (location.hash) history.replaceState(null, '', TAB_PATH[curTab]);
-function applyTab() {
-  document.querySelectorAll('section[data-panel]').forEach(s => { s.hidden = s.dataset.panel !== curTab; });
-  document.querySelectorAll('#tabNav [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === curTab));
-  document.title = `${TAB_TITLE[curTab]}・我的資產`;
-}
-function showTab(t, push = true) {
-  if (!TABS.includes(t)) return;
-  if (push && t !== curTab) history.pushState(null, '', TAB_PATH[t]);
-  curTab = t; applyTab(); window.scrollTo(0, 0);
-  if (data) render();   // 圖表在隱藏時量不到寬度，切過來要重畫
-}
-applyTab();
+// ============ 頁面：每個網址是獨立的頁面，只有自己的區塊 ============
+const PAGE = document.body.dataset.page || 'overview';
 
 // ============ 隱私模式 ============
 function applyPrivacy() {
@@ -442,7 +424,7 @@ async function loadEtfs(syms) {
   todo.forEach(s => etfAsked.add(s));
   try { Object.assign(etfData, await (await fetch('/api/etf-holdings?symbols=' + todo.join(','))).json()); }
   catch { todo.forEach(s => { etfData[s] = { error: '連不上伺服器' }; }); }
-  if (curTab === 'risk') { const c = calc(); renderExposure(c); renderEtfView(c); }
+  const c = calc(); renderExposure(c); renderEtfView(c);
 }
 function etfSource(sym) {
   // 回傳要拆的 ETF 代號；undefined 代表還在載入，null 代表沒辦法拆
@@ -505,7 +487,7 @@ function renderExposure(c) {
   const row = (g, muted) => {
     const share = g.total / eq, w = Math.abs(g.total) / max * 100;
     const via = Object.entries(g.via).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
-    return `<div class="hbar-row ${muted ? 'muted-row' : ''}"><div class="hbar-name">${muted ? esc(g.name) : `${esc(g.key)} <span class="x-sub">${esc(g.name || '')}</span>`}</div>
+    return `<div class="hbar-row expo-row ${muted ? 'muted-row' : ''}"><div class="hbar-name">${muted ? esc(g.name) : `${esc(g.key)} <span class="x-sub">${esc(g.name || '')}</span>`}</div>
       <div class="hbar-track"><i class="${g.total >= 0 ? '' : 'neg'}" style="left:0;width:${w}%"></i></div>
       <div class="hbar-val num">${usd0(g.total)} <span class="x-sub">${pctPlain(share, 1)} 淨資產</span></div>
       <div class="hbar-items">${via.map(([k, v]) => `<span class="x-chip">${esc(k)} ${usd0(v)}</span>`).join('')}</div></div>`;
@@ -546,9 +528,9 @@ function renderEtfView(c) {
   box.innerHTML = head + `
     ${d.stocks ? '' : `<div class="x-sub" style="margin:8px 0">${esc(etfView)} 主要持有交換合約或選擇權，不是直接持有股票，所以曝險總覽不會用它來拆。</div>`}
     <div class="x-sub" style="margin:8px 0">共 ${d.count} 檔持股，前 ${d.top.length} 大合計 ${d.topSum.toFixed(1)}%${mine ? `・你透過 ${esc(etfView)} 的曝險 <span class="x-money">${usd0(mine)}</span>` : ''}</div>
-    <div class="table-wrap" style="margin:0"><table class="x-table etf-table"><thead><tr><th>#</th><th class="l">代號</th><th class="l">公司</th><th>每 100 元裡</th>${mine ? '<th>你的曝險</th>' : ''}<th class="l bar-col"></th></tr></thead>
+    <div class="table-wrap" style="margin:0"><table class="x-table etf-table"><thead><tr><th>#</th><th class="l">代號</th><th class="l">公司</th><th>每 100 元裡</th>${mine ? '<th>你的曝險</th>' : ''}</tr></thead>
       <tbody>${d.top.map((h, i) => `<tr><td class="rank">${i + 1}</td><td class="l"><b>${esc(h.sym || '—')}</b></td><td class="l name">${esc(titleCase(h.name))}</td>
-        <td class="w">${h.w.toFixed(2)} 元</td>${mine ? `<td><span class="x-money">${usd0(mine * h.w / 100)}</span></td>` : ''}<td class="l bar-col"><i style="width:${h.w / maxW * 100}%"></i></td></tr>`).join('')}</tbody></table></div>
+        <td class="w" style="--w:${(h.w / maxW * 100).toFixed(1)}%">${h.w.toFixed(2)} 元</td>${mine ? `<td><span class="x-money">${usd0(mine * h.w / 100)}</span></td>` : ''}</tr>`).join('')}</tbody></table></div>
     <div class="x-note">資料來自 Zacks（${new Date(d.fetched * 1000).toLocaleDateString('zh-TW')} 抓取${d.stale ? '，今天抓不到，先用上次的資料' : ''}），ETF 的持股每天會小幅變動。</div>`;
 }
 
@@ -723,6 +705,17 @@ function renderPlans(c) {
     + (old.length ? `<details class="x-details pl-old"><summary>已完成、作廢的計畫（${old.length}）</summary>${old.map(planItem).join('')}</details>` : '')
     + `<div class="x-note">守則：① 不做選擇權買方 ② 新交易先寫計畫，寫完等 ${RULES.wait} 個交易日才下單，計畫裡寫好的加碼、出場、roll 不用再等 ③ 單一個股最多 ${RULES.cap}%，超過 ${RULES.trim}% 減碼回 ${RULES.cap}%（sell put 以履約價 × 100 計算，大盤型 ETF 不受限，禁止個股型槓桿 ETF）。</div>`;
   el('plansNote').textContent = ready.length ? `${ready.length} 份可以執行` : waiting.length ? `${waiting.length} 份等待中` : '';
+}
+
+function renderPlanSummary() {
+  const box = el('planSummary'); if (!box) return;
+  const plans = (data.plans || []).filter(p => p.created && ['waiting', 'ready'].includes(planState(p)))
+    .sort((a, b) => planExec(a).localeCompare(planExec(b)));
+  box.innerHTML = plans.length ? plans.map(p => {
+    const st = planState(p), left = st === 'waiting' ? tradingDaysBetween(today(), planExec(p)) : 0;
+    return `<a class="ps-row" href="/plans"><span class="pl-badge ${st === 'ready' ? 'go' : 'wait'}">${st === 'ready' ? '可以執行' : `還要 ${left} 天`}</span>
+      <span class="ps-name">${esc(PLAN_ACTIONS[p.action] || '')} <b>${esc(p.sym)}</b></span><span class="pl-date">${planExec(p).slice(5).replace('-', '/')}</span></a>`;
+  }).join('') : '<div class="x-empty" style="padding:14px 0">目前沒有進行中的計畫</div>';
 }
 
 // ============ 選擇權部位風險 ============
@@ -1003,14 +996,19 @@ function renderFees() {
 window.renderExtras = function renderExtras(c) {
   if (!data) return;
   c = c || calc();
-  applyTab(); applyPrivacy(); applyCalm();
-  try { renderProgress(c); } catch (err) { console.error('progress', err); }
+  applyPrivacy(); applyCalm();
   try { renderAlertBar(computeAlerts(c)); } catch (err) { console.error('alerts', err); }
-  const safe = (name, fn) => { try { fn(); } catch (err) { console.error(name, err); const b = el(name); if (b) b.innerHTML = `<div class="x-empty">這個區塊出錯了：${esc(err.message)}</div>`; } };
-  if (curTab === 'overview') { safe('planList', () => renderPlans(c)); safe('eventsBox', () => renderEvents(c)); }
-  if (curTab === 'perf') { safe('metricsBox', renderMetrics); safe('heatBox', renderHeat); }
-  if (curTab === 'risk') { safe('exposureBox', () => renderExposure(c)); safe('etfBox', () => renderEtfView(c)); safe('optRiskBox', () => renderOptRisk(c)); }
-  if (curTab === 'trade') { safe('journalBox', renderJournal); safe('analysisBox', renderAnalysis); safe('monthlyBox', renderMonthly); safe('feeBox', renderFees); }
+  // 每一頁只有自己的區塊；不在這一頁的直接略過
+  const parts = [
+    ['progressBox', () => renderProgress(c)], ['planSummary', renderPlanSummary], ['eventsBox', () => renderEvents(c)],
+    ['planList', () => renderPlans(c)], ['metricsBox', renderMetrics], ['heatBox', renderHeat],
+    ['exposureBox', () => renderExposure(c)], ['etfBox', () => renderEtfView(c)], ['optRiskBox', () => renderOptRisk(c)],
+    ['journalBox', renderJournal], ['analysisBox', renderAnalysis], ['monthlyBox', renderMonthly], ['feeBox', renderFees],
+  ];
+  for (const [name, fn] of parts) {
+    const b = el(name); if (!b) continue;
+    try { fn(); } catch (err) { console.error(name, err); b.innerHTML = `<div class="x-empty">這個區塊出錯了：${esc(err.message)}</div>`; }
+  }
 };
 
 // ============ 事件 ============
@@ -1033,8 +1031,6 @@ function lookupEtf() {
   etfView = v; store.set('etfView', v); el('etfLookup').blur(); renderEtfView(calc());
 }
 document.addEventListener('click', e => {
-  const a = e.target.closest('a[data-tab]');
-  if (a) { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) { e.preventDefault(); showTab(a.dataset.tab); } return; }
   const b = e.target.closest('button'); if (!b) return;
   if (b.id === 'privacyBtn') { store.set('privacy', store.get('privacy', '0') === '1' ? '0' : '1'); applyPrivacy(); }
   else if (b.id === 'calmBtn') { store.set('calm', isCalm() ? '0' : '1'); peek(false); applyCalm(); render(); }
@@ -1069,8 +1065,7 @@ document.addEventListener('input', e => { if (e.target.closest('#planForm')) upd
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'etfLookup') lookupEtf(); });
 document.addEventListener('change', e => {
   const t = e.target;
-  if (t.id === 'outsideFlowChk') { store.set('outsideAsFlow', t.checked ? '1' : '0'); renderMetrics(); renderHeat(); renderProgress(calc()); }
+  if (t.id === 'outsideFlowChk') { store.set('outsideAsFlow', t.checked ? '1' : '0'); window.renderExtras(); }
 });
-window.addEventListener('popstate', () => showTab(tabOfPath(), false));
 window.addEventListener('resize', () => { clearTimeout(window._rzx); window._rzx = setTimeout(() => window.renderExtras(), 200); });
 })();

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}・我的資產</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="我的資產">
+<meta name="theme-color" content="#2a78d6">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>">
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/analytics.css">
+</head>
+<body data-page="{{PAGE}}">
+<div class="app">
+
+  <!-- 側邊導覽：每一項都是獨立的頁面 -->
+  <nav class="side" id="sideNav">
+    <div class="brand">💰 我的資產</div>
+    <div class="side-group">資產</div>
+    <a href="/overview" data-nav="overview">總覽</a>
+    <a href="/performance" data-nav="performance">績效</a>
+    <a href="/exposure" data-nav="exposure">曝險</a>
+    <a href="/risk" data-nav="risk">槓桿與選擇權</a>
+    <div class="side-group">交易</div>
+    <a href="/plans" data-nav="plans">交易計畫</a>
+    <a href="/trades" data-nav="trades">交易紀錄</a>
+    <a href="/analysis" data-nav="analysis">交易分析</a>
+    <a href="/journal" data-nav="journal">交易日記</a>
+    <div class="side-spacer"></div>
+    <a href="/settings" data-nav="settings">設定與備份</a>
+  </nav>
+
+  <div class="wrap">
+    <!-- 總資產（每一頁都有） -->
+    <header class="card topbar">
+      <div class="hero">
+        <div>
+          <div class="hero-label">
+            總資產
+            <span class="seg" id="curSeg"><button data-cur="TWD">TWD</button><button data-cur="USD">USD</button></span>
+          </div>
+          <div class="hero-value num" id="heroTotal">—</div>
+          <div class="hero-sub num">
+            <span id="heroDay"></span>
+            <span id="heroCalm"></span>
+            <span id="calmMsg">所有金額和漲跌都先收起來了。想看的時候按右邊的「👁 看一下」。</span>
+          </div>
+        </div>
+        <div class="topbar-side">
+          <div class="status"><span id="sessionInfo"></span><span id="fxInfo"></span></div>
+          <div class="status">
+            <span id="updatedAt">尚未更新</span>
+            <button class="ghost" id="refreshBtn" title="立即更新股價">↻ 更新</button>
+            <button class="ghost" id="peekBtn" title="暫時顯示數字，3 分鐘後自動收起">👁 看一下</button>
+            <button class="ghost" id="calmBtn" title="平靜模式：不顯示今天的漲跌，改看今年的累積成績">◎ 平靜</button>
+            <button class="ghost" id="privacyBtn" title="隱私模式：模糊所有金額（給別人看螢幕時用）">◐ 隱私</button>
+          </div>
+          <div class="status">
+            <button class="primary" id="brokerBtn" title="交易紀錄 CSV、持倉 xlsx 都可以，也能直接拖進網頁">⇪ 上傳券商檔案</button>
+            <input type="file" id="brokerFile" accept=".csv,.xlsx,text/csv" multiple hidden>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div id="alertBar" hidden></div>
+
+    <main class="board">
+{{CONTENT}}
+    </main>
+  </div>
+</div>
+
+<dialog id="modal"><form method="dialog" class="modal-body" id="modalForm"></form></dialog>
+<div class="toast" id="toast"></div>
+<script src="/app.js"></script>
+<script src="/analytics.js"></script>
+</body>
+</html>

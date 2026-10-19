@@ -1,20 +1,7 @@
 /* analytics.js 的版面：分頁、警示、各分析卡片。顏色全部沿用 index.html 定義的變數，深色模式自動跟著變 */
 
-/* ---------- 分頁 ---------- */
-.tab-nav {
-  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
-  display: flex; gap: 4px; margin: 16px 0; padding: 4px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-  overflow-x: auto; scrollbar-width: none;
-}
-.tab-nav::-webkit-scrollbar { display: none; }
-.tab-nav a { flex: 1 0 auto; text-align: center; text-decoration: none; padding: 8px 14px; border-radius: 8px; font-size: 14px; color: var(--text-2); }
-.tab-nav a:hover { background: var(--surface-2); color: var(--text); }
-.tab-nav a.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-section[data-panel] > .card:first-child, section[data-panel] > .grid:first-child { margin-top: 0; }
-
 /* ---------- 警示橫幅 ---------- */
-#alertBar { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+#alertBar { display: flex; flex-direction: column; gap: 6px; }
 .alert-item {
   display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px; font-size: 13px;
   background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--warn, #c98500);
@@ -207,7 +194,17 @@ details.x-details > summary { cursor: pointer; font-size: 13px; color: var(--tex
 .etf-table td.rank { color: var(--text-3); text-align: right; width: 28px; }
 .etf-table td.name { color: var(--text-2); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .etf-table td.w { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.etf-table .bar-col { width: 30%; }
-.etf-table td.bar-col i { display: block; height: 8px; border-radius: 4px; background: var(--accent); opacity: .75; }
-@media (max-width: 600px) { .etf-table .bar-col, .etf-table td.name { display: none; } }
+.etf-table td.w { background: linear-gradient(90deg, transparent calc(100% - var(--w) * .9), var(--accent-soft) calc(100% - var(--w) * .9)); }
+.etf-table td.name { max-width: 180px; }
+@media (max-width: 600px) { .etf-table td.name, .etf-table th:nth-child(3) { display: none; } }
+@media (min-width: 1151px) {
+  .expo-row { grid-template-columns: minmax(110px, 160px) minmax(60px, 1fr) minmax(90px, auto) minmax(140px, 1.1fr); padding: 5px 0; }
+  .expo-row .hbar-items { grid-column: auto; margin: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; }
+}
+
+/* ---------- 總覽：進行中的計畫 ---------- */
+.ps-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); color: inherit; text-decoration: none; font-size: 13px; }
+.ps-row:last-child { border-bottom: 0; }
+.ps-row:hover .ps-name { color: var(--accent); }
+.ps-name { flex: 1; min-width: 0; }
 

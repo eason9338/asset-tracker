@@ -26,10 +26,27 @@ BACKUP_DIR = os.path.join(BASE, "backups")
 CACHE_DIR = os.path.join(BASE, "cache")
 UA = "Mozilla/5.0"
 
-# 各分頁的網址（都用同一份 index.html，由網頁依網址顯示對應的分頁）
-PAGES = ("/", "/index.html", "/overview", "/performance", "/risk", "/trades")
+# 每個網址是一個獨立的頁面：共用外框 shell.html，內容在 pages/<名稱>.html
+PAGES = {
+    "overview": "總覽", "performance": "績效", "exposure": "曝險", "risk": "槓桿與選擇權",
+    "plans": "交易計畫", "trades": "交易紀錄", "analysis": "交易分析", "journal": "交易日記", "settings": "設定與備份",
+}
+PAGE_ALIAS = {"": "overview", "index.html": "overview", "perf": "performance", "trade": "trades"}
+
+
+def render_page(name):
+    with open(os.path.join(BASE, "shell.html"), encoding="utf-8") as f:
+        shell = f.read()
+    with open(os.path.join(BASE, "pages", name + ".html"), encoding="utf-8") as f:
+        content = f.read()
+    shell = shell.replace(f'data-nav="{name}"', f'data-nav="{name}" class="on" aria-current="page"')
+    return (shell.replace("{{TITLE}}", PAGES[name]).replace("{{PAGE}}", name)
+            .replace("{{CONTENT}}", content)).encode("utf-8")
+
 
 STATIC_FILES = {
+    "app.js": "application/javascript; charset=utf-8",
+    "app.css": "text/css; charset=utf-8",
     "analytics.js": "application/javascript; charset=utf-8",
     "analytics.css": "text/css; charset=utf-8",
     "manifest.webmanifest": "application/manifest+json",
@@ -527,9 +544,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
-        if u.path in PAGES:
-            with open(os.path.join(BASE, "index.html"), "rb") as f:
-                return self._send(200, f.read(), "text/html; charset=utf-8")
+        page = u.path.strip("/")
+        page = PAGE_ALIAS.get(page, page)
+        if page in PAGES:
+            return self._send(200, render_page(page), "text/html; charset=utf-8")
         # 網頁用到的其他檔案（只開放清單內的，不會把 data.json 之類的檔案送出去）
         static = STATIC_FILES.get(u.path.lstrip("/"))
         if static and os.path.exists(os.path.join(BASE, u.path.lstrip("/"))):
