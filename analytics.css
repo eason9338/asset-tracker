@@ -142,7 +142,7 @@ details.x-details > summary { cursor: pointer; font-size: 13px; color: var(--tex
 .pc-top, .pc-nums { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; margin-bottom: 10px; }
 .pc-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); min-width: 0; }
 .pc-field[hidden] { display: none; }
-.pc-field input, .pc-field textarea { padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font: inherit; font-size: 14px; color: var(--text); width: 100%; }
+.pc-field input, .pc-field textarea, .pc-field select { padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font: inherit; font-size: 14px; color: var(--text); width: 100%; }
 .pc-field textarea { resize: vertical; }
 .pc-sym { width: 150px; }
 .pc-nums .pc-field { width: 120px; }
@@ -207,4 +207,8 @@ details.x-details > summary { cursor: pointer; font-size: 13px; color: var(--tex
 .ps-row:last-child { border-bottom: 0; }
 .ps-row:hover .ps-name { color: var(--accent); }
 .ps-name { flex: 1; min-width: 0; }
+.pc-nums .pc-field:has([data-pf="when"]) { width: 150px; }
+.pc-field select:disabled { opacity: .5; }
+.pl-when { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.pl-when.today { color: var(--accent); font-weight: 600; }
 

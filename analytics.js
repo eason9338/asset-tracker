@@ -255,6 +255,7 @@ function computeAlerts(c) {
   for (const p of (data.plans || []).filter(p => p.created && ['waiting', 'ready'].includes(planState(p)))) {
     const name = `${PLAN_ACTIONS[p.action] || ''} ${esc(p.sym)}`, hide = isCalm(), px = quotes[p.sym]?.price;
     if (planExec(p) === today()) out.push({ lvl: 'calm', tag: '計畫', msg: `「${name}」的計畫今天起可以執行了：條件還成立就照計畫做，不成立就作廢。` });
+    if (planNextDate(p) === today() && planState(p) === 'ready') out.push({ lvl: 'calm', tag: '計畫', msg: `今天是「${name}」計畫裡的買進日${p.qty ? `（${p.qty} 股）` : ''}，照計畫買就好。` });
     if (px != null && p.stop && px <= p.stop) out.push({ lvl: 'danger', tag: '計畫', msg: `${esc(p.sym)} 到了你計畫裡的停損${hide ? '' : `（<b>${usd(p.stop)}</b>）`}。照計畫執行，不用重新說服自己。` });
     if (px != null && p.target && px >= p.target) out.push({ lvl: 'calm', tag: '計畫', msg: `${esc(p.sym)} 到了你計畫裡的目標${hide ? '' : `（<b>${usd(p.target)}</b>）`}，照計畫處理。` });
   }
@@ -565,7 +566,27 @@ function capExposure(c, extra) {
 }
 
 let planEditId = null;   // 正在編輯的計畫；null 代表寫新的
-const PF = ['sym', 'action', 'qty', 'price', 'exp', 'thesis', 'entry', 'addCond', 'exitCond', 'rollCond', 'stop', 'target'];
+const PF = ['sym', 'action', 'qty', 'price', 'exp', 'when', 'repeat', 'thesis', 'entry', 'addCond', 'exitCond', 'rollCond', 'stop', 'target'];
+const REPEAT = { '': '不重複', week: '每週', month: '每月' };
+const WEEKDAY = '日一二三四五六';
+const fmtDay = d => `${d.slice(5).replace('-', '/')}（週${WEEKDAY[new Date(d + 'T12:00:00Z').getUTCDay()]}）`;
+function addMonthsKeepDay(d, n, day) {
+  // 每月同一天；那個月沒有這一天（例如 31 號）就用月底
+  const [y, m] = d.split('-').map(Number), t = new Date(Date.UTC(y, m - 1 + n, 1));
+  const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+  t.setUTCDate(Math.min(day, last));
+  return t.toISOString().slice(0, 10);
+}
+function planNextDate(p) {
+  // 計畫裡的下一次買進日：不重複就是填的那天；重複的話往後找第一個「今天以後、而且等待期已過」的日期
+  if (!p.when) return null;
+  if (!p.repeat) return p.when;
+  const exec = p.created ? planExec(p) : addTradingDays(today(), RULES.wait), from = exec > today() ? exec : today();
+  const day = +p.when.slice(8);
+  let d = p.when, i = 0;
+  while (d < from && i < 1000) { i++; d = p.repeat === 'week' ? new Date(new Date(p.when + 'T12:00:00Z').getTime() + i * 7 * 864e5).toISOString().slice(0, 10) : addMonthsKeepDay(p.when, i, day); }
+  return d;
+}
 function readPlanForm() {
   const f = {}; document.querySelectorAll('#planForm [data-pf]').forEach(i => { f[i.dataset.pf] = i.value; });
   f.sym = (f.sym || '').trim().toUpperCase(); f.action ||= 'buy';
@@ -594,6 +615,14 @@ function planWarnings(f, c) {
     const have = c.rows.filter(r => sameGroup(r.sym, sym)).reduce((s, r) => s + r.shares, 0), need = 100 * (parseFloat(f.qty) || 0);
     if (need > have) w.push({ bad: true, t: `Covered call 要先持有 ${need} 股 ${esc(sym)}（目前 ${have} 股），不然就是賣裸 call` });
   }
+  if (f.when) {
+    const exec = planEditId ? planExec(data.plans.find(p => p.id === planEditId) || { created: today() }) : addTradingDays(today(), RULES.wait);
+    const next = planNextDate({ when: f.when, repeat: f.repeat, created: planEditId ? data.plans.find(p => p.id === planEditId)?.created : null });
+    if (!f.repeat && f.when < today()) w.push({ bad: true, t: `買進日期 ${f.when} 已經過了` });
+    else if (!f.repeat && f.when < exec) w.push({ bad: true, t: `買進日期 ${fmtDay(f.when)} 還在等待期內，最早 ${exec} 才能下單` });
+    else if (f.repeat && f.when < exec) w.push({ t: `等待期內的那幾次先跳過，第一次買進是 ${fmtDay(next)}` });
+    if (!isWeekday(next)) w.push({ t: `${fmtDay(next)} 是週末，美股沒開，請改到交易日或那週的下一個交易日買` });
+  }
   if (f.action !== 'reduce' && !f.exitCond.trim()) w.push({ t: '還沒寫「什麼情況出場」：先寫好，之後要停損就能直接執行，不用再等' });
   return w;
 }
@@ -604,6 +633,7 @@ function updatePlanCalc() {
   box.querySelector('[data-pf-label="qty"]').textContent = isOpt ? '口數' : '股數';
   box.querySelector('[data-pf-label="price"]').textContent = isOpt ? '履約價' : '價格';
   box.querySelectorAll('[data-pf-opt]').forEach(x => { x.hidden = !isOpt; });
+  box.querySelector('[data-pf="repeat"]').disabled = !f.when;   // 有填日期才需要選重複
   box.querySelector('[data-pf="price"]').placeholder = !isOpt && quotes[f.sym]?.price ? `現價 ${quotes[f.sym].price}` : '';
   const amt = planAmount(f);
   el('planCalc').innerHTML = amt ? `金額 <span class="x-money">${usd0(amt)}</span>${f.action === 'sellput' ? '（被指派時要付）' : ''}・佔總資產 <span class="x-money">${pctPlain(amt / c.totalUSD, 1)}</span>` : '';
@@ -624,6 +654,8 @@ function buildPlanComposer(c) {
       <label class="pc-field"><span data-pf-label="qty">股數</span><input type="number" step="any" min="0" data-pf="qty"></label>
       <label class="pc-field"><span data-pf-label="price">價格</span><input type="number" step="any" min="0" data-pf="price"></label>
       <label class="pc-field" data-pf-opt hidden><span>到期日</span><input type="date" data-pf="exp"></label>
+      <label class="pc-field"><span>買進日期（選填）</span><input type="date" data-pf="when"></label>
+      <label class="pc-field"><span>重複</span><select data-pf="repeat">${Object.entries(REPEAT).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></label>
       <div class="pc-calc" id="planCalc"></div>
     </div>
     <div class="pc-grid">
@@ -651,6 +683,7 @@ function savePlan() {
     sym: f.sym, action: f.action, qty: num('qty'), price: num('price'), exp: OPT_ACTIONS.has(f.action) ? f.exp || null : null,
     amount: Math.round(amt) || null, pct: amt ? amt / c.totalUSD : null,
     thesis: f.thesis.trim(), entry: f.entry.trim(), addCond: f.addCond.trim(), exitCond: f.exitCond.trim(), rollCond: f.rollCond.trim(),
+    when: f.when || null, repeat: f.when ? f.repeat || null : null,
     stop: num('stop'), target: num('target') };
   data.plans = [...(data.plans || []).filter(x => x !== old), p];
   planEditId = null; store.set('planDraft', 'null'); fillPlanForm(null);
@@ -676,10 +709,12 @@ function planItem(p) {
                   closed: '<span class="pl-badge">已完成</span>', void: '<span class="pl-badge">已作廢</span>' }[st];
   const unit = OPT_ACTIONS.has(p.action) ? '口' : '股';
   const line = (k, t) => p[k] ? `<div class="pl-line"><span>${t}</span><div>${esc(p[k])}</div></div>` : '';
-  const done = planTrades(p).length;
+  const done = planTrades(p).length, next = planNextDate(p);
+  const when = next ? `<div class="pl-when ${next === today() ? 'today' : ''}">📅 ${next === today() ? '今天要買' : next < today() ? '買進日已過' : '下次買進'} ${fmtDay(next)}${p.repeat ? `・${REPEAT[p.repeat]}` : ''}</div>` : '';
   return `<details class="pl-item ${st}">
     <summary>${badge}<span class="pl-title"><b>${esc(PLAN_ACTIONS[p.action] || '')} ${esc(p.sym)}</b>
       ${p.qty ? `<span class="pl-qty">${p.qty} ${unit}${p.price ? ` @ <span class="x-money">${p.price}</span>` : ''}${p.exp ? `・${p.exp.slice(5).replace('-', '/')} 到期` : ''}</span>` : ''}</span>
+      ${['waiting', 'ready'].includes(st) ? when : ''}</span>
       ${dots}<span class="pl-date">${st === 'waiting' ? `${exec.slice(5).replace('-', '/')} 起` : p.created.slice(5).replace('-', '/') + ' 寫'}</span></summary>
     <div class="pl-body">
       ${p.thesis ? `<div class="pl-thesis">${esc(p.thesis)}</div>` : ''}
@@ -710,11 +745,11 @@ function renderPlans(c) {
 function renderPlanSummary() {
   const box = el('planSummary'); if (!box) return;
   const plans = (data.plans || []).filter(p => p.created && ['waiting', 'ready'].includes(planState(p)))
-    .sort((a, b) => planExec(a).localeCompare(planExec(b)));
+    .sort((a, b) => (planNextDate(a) || planExec(a)).localeCompare(planNextDate(b) || planExec(b)));
   box.innerHTML = plans.length ? plans.map(p => {
-    const st = planState(p), left = st === 'waiting' ? tradingDaysBetween(today(), planExec(p)) : 0;
+    const st = planState(p), left = st === 'waiting' ? tradingDaysBetween(today(), planExec(p)) : 0, next = planNextDate(p);
     return `<a class="ps-row" href="/plans"><span class="pl-badge ${st === 'ready' ? 'go' : 'wait'}">${st === 'ready' ? '可以執行' : `還要 ${left} 天`}</span>
-      <span class="ps-name">${esc(PLAN_ACTIONS[p.action] || '')} <b>${esc(p.sym)}</b></span><span class="pl-date">${planExec(p).slice(5).replace('-', '/')}</span></a>`;
+      <span class="ps-name">${esc(PLAN_ACTIONS[p.action] || '')} <b>${esc(p.sym)}</b></span><span class="pl-date">${next ? `${next === today() ? '今天買' : '買進 ' + fmtDay(next)}${p.repeat ? `・${REPEAT[p.repeat]}` : ''}` : planExec(p).slice(5).replace('-', '/') + ' 起'}</span></a>`;
   }).join('') : '<div class="x-empty" style="padding:14px 0">目前沒有進行中的計畫</div>';
 }
 
@@ -1036,7 +1071,11 @@ document.addEventListener('click', e => {
   else if (b.id === 'calmBtn') { store.set('calm', isCalm() ? '0' : '1'); peek(false); applyCalm(); render(); }
   else if (b.id === 'peekBtn') peek(!document.documentElement.classList.contains('peek'));
   else if (b.dataset.mood) { jMood = b.dataset.mood; renderJournal(); }
-  else if (b.dataset.pfAct) { el('planForm').querySelector('[data-pf="action"]').value = b.dataset.pfAct; updatePlanCalc(); }
+  else if (b.dataset.pfAct) {
+    const f = el('planForm'); f.querySelector('[data-pf="action"]').value = b.dataset.pfAct;
+    if (b.dataset.pfAct === 'dca' && !f.querySelector('[data-pf="repeat"]').value) f.querySelector('[data-pf="repeat"]').value = 'month';
+    updatePlanCalc();
+  }
   else if (b.dataset.planSave) savePlan();
   else if (b.dataset.planCancel) { planEditId = null; fillPlanForm(null); store.set('planDraft', 'null'); updatePlanCalc(); }
   else if (b.dataset.planEdit) editPlan(b.dataset.planEdit);
