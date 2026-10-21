@@ -1231,13 +1231,11 @@ function renderTreemap(c) {
   for (const n of keep) if (n.link) n.cat = sectorOf(n.key);
   const W = box.clientWidth, H = box.clientHeight;
   const tiles = squarify(keep, { x: 0, y: 0, w: W, h: H });
-  const stockMax = Math.max(...keep.filter(n => !n.gray).map(n => n.v), 1);
   box.innerHTML = tiles.map((t, i) => {
     const big = t.w > 64 && t.h > 38, mid = t.w > 38 && t.h > 22;
-    // 同一類同一個顏色，方塊越大顏色越深
-    const mix = Math.round(38 + 50 * Math.sqrt(t.v / stockMax));
-    const color = t.gray ? 'var(--surface-2)' : `color-mix(in srgb, var(--c-${t.cat || 'tech'}) ${mix}%, var(--surface))`;
-    const fg = t.gray ? 'var(--text-2)' : mix > 62 ? '#fff' : 'var(--text)';
+    // 同一類固定同一個顏色（不分深淺）
+    const color = t.gray ? 'var(--surface-2)' : `color-mix(in srgb, var(--c-${t.cat || 'tech'}) 42%, var(--surface))`;
+    const fg = t.gray ? 'var(--text-2)' : 'var(--text)';
     const tag = t.link ? 'a' : 'div';
     return `<${tag} class="tm-tile" data-ti="${i}" ${t.link ? `href="/symbol?s=${encodeURIComponent(t.key)}"` : ''}
       style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${color};color:${fg}">
@@ -1258,7 +1256,7 @@ function renderTreemap(c) {
   // 圖例：每一類合計佔多少
   const byCat = {};
   for (const n of keep) if (n.link) byCat[n.cat || 'other'] = (byCat[n.cat || 'other'] || 0) + n.v;
-  el('treemapLegend').innerHTML = SECTORS.filter(([k]) => byCat[k]).map(([k, t]) => `<span class="legend-item"><span class="dot" style="background:var(--c-${k})"></span>${t} <b class="num">${pctPlain(byCat[k] / base, 1)}</b></span>`).join('');
+  el('treemapLegend').innerHTML = SECTORS.filter(([k]) => byCat[k]).map(([k, t]) => `<span class="legend-item"><span class="dot" style="background:color-mix(in srgb, var(--c-${k}) 60%, var(--surface))"></span>${t} <b class="num">${pctPlain(byCat[k] / base, 1)}</b></span>`).join('');
   el('treemapNote').innerHTML = all ? `佔淨資產 <span class="money">${usd0(base)}</span>` : `股票部位 <span class="money">${usd0(base)}</span>・淨資產的 <span class="money">${pctPlain(base / eq)}</span>`;
 }
 
