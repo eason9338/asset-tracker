@@ -581,7 +581,7 @@ let planEditId = null;   // 正在編輯的計畫；null 代表寫新的
 const PF = ['sym', 'action', 'leg', 'qty', 'price', 'exp', 'when', 'repeat', 'thesis', 'entry'];
 const REPEAT = { '': '不重複', week: '每週', month: '每月' };
 const WEEKDAY = '日一二三四五六';
-const fmtDay = d => `${d.slice(5).replace('-', '/')}（週${WEEKDAY[new Date(d + 'T12:00:00Z').getUTCDay()]}）`;
+const fmtDay = d => `${d.slice(5).replace('-', '/')}（${WEEKDAY[new Date(d + 'T12:00:00Z').getUTCDay()]}）`;
 function addMonthsKeepDay(d, n, day) {
   // 每月同一天；那個月沒有這一天（例如 31 號）就用月底
   const [y, m] = d.split('-').map(Number), t = new Date(Date.UTC(y, m - 1 + n, 1));
@@ -710,26 +710,33 @@ function planTrades(p) {
   return data.transactions.filter(t => t.date >= from && t.date <= to &&
     (((t.type === 'buy' || t.type === 'sell') && sameGroup(t.symbol, p.sym)) || (t.type === 'option' && sameGroup(occ(t.symbol)?.root || '', p.sym))));
 }
-function planItem(p) {
-  const st = planState(p), exec = planExec(p), wait = p.wait ?? RULES.wait;
+function planCells(p) {
+  // 每一列固定三欄：標的／動作、數量／價格、狀態
+  const st = planState(p), exec = planExec(p), next = planNextDate(p), a = actOf(p);
   const left = st === 'waiting' ? tradingDaysBetween(today(), exec) : 0;
-  const dots = st === 'waiting' ? `<span class="pl-dots" title="還要 ${left} 個交易日">${Array.from({ length: wait }, (_, i) => `<i class="${i < wait - left ? 'on' : ''}"></i>`).join('')}</span>` : '';
-  const badge = { waiting: `<span class="pl-badge wait">還要 ${left} 天</span>`, ready: '<span class="pl-badge go">可以執行</span>',
-                  closed: '<span class="pl-badge">已完成</span>', void: '<span class="pl-badge">已作廢</span>' }[st];
-  const unit = isOptAct(actOf(p)) ? '口' : '股';
+  const unit = isOptAct(a) ? '口' : '股';
+  const sub = p.repeat ? `${REPEAT[p.repeat]}・下次 ${fmtDay(next)}` : next ? `買進日 ${fmtDay(next)}` : p.exp ? `${p.exp.slice(5).replace('-', '/')} 到期` : '';
+  const status = {
+    ready: next === today() ? ['<span class="pl-st go">今天買</span>', ''] : ['<span class="pl-st go">可以執行</span>', ''],
+    waiting: [`<span class="pl-st">${left} 天後</span>`, fmtDay(exec)],
+    closed: ['<span class="pl-st muted">已完成</span>', (p.closedAt || p.created).slice(5).replace('-', '/')],
+    void: ['<span class="pl-st muted">已作廢</span>', (p.closedAt || p.created).slice(5).replace('-', '/')],
+  }[st];
+  return `<div class="pl-c1"><b>${esc(p.sym)}</b><span class="pl-sub">${esc(planLabel(p))}</span></div>
+    <div class="pl-c2">${p.qty ? `${p.qty} ${unit}${p.price ? ` @ <span class="x-money">${p.price}</span>` : ''}` : '<span class="muted">—</span>'}<span class="pl-sub">${sub || '&nbsp;'}</span></div>
+    <div class="pl-c3">${status[0]}<span class="pl-sub">${status[1] || '&nbsp;'}</span></div>`;
+}
+function planItem(p) {
+  // 點開才看理由和按鈕
+  const st = planState(p), exec = planExec(p);
   const line = (k, t) => p[k] ? `<div class="pl-line"><span>${t}</span><div>${esc(p[k])}</div></div>` : '';
-  const done = planTrades(p).length, next = planNextDate(p);
-  const when = next ? `<div class="pl-when ${next === today() ? 'today' : ''}">📅 ${next === today() ? '今天要買' : next < today() ? '買進日已過' : '下次買進'} ${fmtDay(next)}${p.repeat ? `・${REPEAT[p.repeat]}` : ''}</div>` : '';
+  const done = planTrades(p).length;
   return `<details class="pl-item ${st}">
-    <summary>${badge}<span class="pl-title"><b>${esc(planLabel(p))} ${esc(p.sym)}</b>
-      ${p.qty ? `<span class="pl-qty">${p.qty} ${unit}${p.price ? ` @ <span class="x-money">${p.price}</span>` : ''}${p.exp ? `・${p.exp.slice(5).replace('-', '/')} 到期` : ''}</span>` : ''}</span>
-      ${['waiting', 'ready'].includes(st) ? when : ''}</span>
-      ${dots}<span class="pl-date">${st === 'waiting' ? `${exec.slice(5).replace('-', '/')} 起` : p.created.slice(5).replace('-', '/') + ' 寫'}</span></summary>
+    <summary>${planCells(p)}</summary>
     <div class="pl-body">
       ${p.thesis ? `<div class="pl-thesis">${esc(p.thesis)}</div>` : ''}
       ${line('entry', '條件')}${line('addCond', '加碼')}${line('exitCond', '出場')}${line('rollCond', 'Roll')}
       <div class="x-sub" style="margin-top:6px">${p.created} 寫・最早 ${exec} 可以下單${p.amount ? `・金額 <span class="x-money">${usd0(p.amount)}</span>（佔總資產 <span class="x-money">${pctPlain(p.pct, 1)}</span>）` : ''}${done ? `・照計畫成交了 ${done} 筆` : ''}</div>
-      ${st === 'ready' ? '<div class="pl-tip">條件還成立就照計畫做；不成立就作廢，不要改計畫硬做。</div>' : ''}
       <div class="plan-actions">${['waiting', 'ready'].includes(st)
         ? `<button class="ghost" data-plan-edit="${p.id}">編輯</button><button class="ghost" data-plan-close="${p.id}">完成</button><button class="ghost" data-plan-void="${p.id}">作廢</button>`
         : `<button class="ghost danger" data-plan-del="${p.id}">刪除</button>`}</div>
@@ -740,25 +747,27 @@ function renderPlans(c) {
   const dl = el('planSyms'); if (dl) dl.innerHTML = heldSyms(c).map(s => `<option value="${esc(s)}">`).join('');
   if (el('planForm') && !el('planForm').contains(document.activeElement)) updatePlanCalc();
   const box = el('planList'); if (!box) return;
-  const plans = (data.plans || []).filter(p => p.created).sort((a, b) => b.ts - a.ts);
-  const ready = plans.filter(p => planState(p) === 'ready'), waiting = plans.filter(p => planState(p) === 'waiting');
-  const old = plans.filter(p => ['closed', 'void'].includes(planState(p)));
-  const group = (t, arr) => arr.length ? `<div class="pl-group"><div class="pl-group-h">${t}（${arr.length}）</div>${arr.map(planItem).join('')}</div>` : '';
-  box.innerHTML = (ready.length || waiting.length ? group('可以執行', ready) + group('等待中', waiting) : '<div class="x-empty" style="padding:16px 0">還沒有進行中的計畫</div>')
-    + (old.length ? `<details class="x-details pl-old"><summary>已完成、作廢的計畫（${old.length}）</summary>${old.map(planItem).join('')}</details>` : '')
-    + `<div class="x-note">守則：① 不做選擇權買方 ② 新交易先寫計畫，寫完等 ${RULES.wait} 個交易日才下單；計畫裡寫好的條件不用再等；違反守則開的倉可以隨時平倉 ③ 單一個股最多 ${RULES.cap}%，超過 ${RULES.trim}% 減碼回 ${RULES.cap}%（sell put 以履約價 × 100 計算，大盤型 ETF 不受限）④ 禁止交易槓桿、反向 ETF（包含 SOXL 這類大盤型），已經持有的可以賣出、平倉。</div>`;
-  el('plansNote').textContent = ready.length ? `${ready.length} 份可以執行` : waiting.length ? `${waiting.length} 份等待中` : '';
+  const plans = (data.plans || []).filter(p => p.created);
+  const when = p => planState(p) === 'ready' ? '0' + (planNextDate(p) || '') : '1' + planExec(p);   // 可以執行的排最前面，其他照日期
+  const active = plans.filter(p => ['waiting', 'ready'].includes(planState(p))).sort((a, b) => when(a).localeCompare(when(b)));
+  const old = plans.filter(p => !active.includes(p)).sort((a, b) => b.ts - a.ts);
+  const ready = active.filter(p => planState(p) === 'ready').length;
+  box.innerHTML = (active.length ? `<div class="pl-list">${active.map(planItem).join('')}</div>` : '<div class="x-empty" style="padding:16px 0">還沒有進行中的計畫</div>')
+    + (old.length ? `<details class="x-details pl-old"><summary>已完成、作廢的計畫（${old.length}）</summary><div class="pl-list">${old.map(planItem).join('')}</div></details>` : '')
+    + `<details class="x-details pl-old"><summary>我的守則</summary><ol class="pl-rules">
+        <li>不做選擇權買方（買回自己賣出的可以）</li>
+        <li>新交易先寫計畫，寫完等 ${RULES.wait} 個交易日才下單；計畫裡寫好的條件不用再等；違反守則開的倉可以隨時平倉</li>
+        <li>單一個股最多 ${RULES.cap}%，超過 ${RULES.trim}% 減碼回 ${RULES.cap}%；sell put 以履約價 × 100 計算；大盤型 ETF 不受限</li>
+        <li>禁止交易槓桿、反向 ETF（包含 SOXL 這類大盤型），已經持有的可以賣出、平倉</li></ol></details>`;
+  el('plansNote').textContent = active.length ? (ready ? `${ready} 份可以執行・` : '') + `${active.length - ready} 份等待中` : '';
 }
 
 function renderPlanSummary() {
   const box = el('planSummary'); if (!box) return;
-  const plans = (data.plans || []).filter(p => p.created && ['waiting', 'ready'].includes(planState(p)))
-    .sort((a, b) => (planNextDate(a) || planExec(a)).localeCompare(planNextDate(b) || planExec(b)));
-  box.innerHTML = plans.length ? plans.map(p => {
-    const st = planState(p), left = st === 'waiting' ? tradingDaysBetween(today(), planExec(p)) : 0, next = planNextDate(p);
-    return `<a class="ps-row" href="/plans"><span class="pl-badge ${st === 'ready' ? 'go' : 'wait'}">${st === 'ready' ? '可以執行' : `還要 ${left} 天`}</span>
-      <span class="ps-name">${esc(planLabel(p))} <b>${esc(p.sym)}</b></span><span class="pl-date">${next ? `${next === today() ? '今天買' : '買進 ' + fmtDay(next)}${p.repeat ? `・${REPEAT[p.repeat]}` : ''}` : planExec(p).slice(5).replace('-', '/') + ' 起'}</span></a>`;
-  }).join('') : '<div class="x-empty" style="padding:14px 0">目前沒有進行中的計畫</div>';
+  const when = p => planState(p) === 'ready' ? '0' + (planNextDate(p) || '') : '1' + planExec(p);
+  const plans = (data.plans || []).filter(p => p.created && ['waiting', 'ready'].includes(planState(p))).sort((a, b) => when(a).localeCompare(when(b)));
+  box.innerHTML = plans.length ? `<div class="pl-list">${plans.map(p => `<a class="pl-item pl-link" href="/plans">${planCells(p)}</a>`).join('')}</div>`
+    : '<div class="x-empty" style="padding:14px 0">目前沒有進行中的計畫</div>';
 }
 
 // ============ 選擇權部位風險 ============
