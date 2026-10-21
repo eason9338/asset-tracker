@@ -753,9 +753,18 @@ function planCells(p) {
   const left = st === 'waiting' ? tradingDaysBetween(today(), exec) : 0;
   const unit = isOptAct(a) ? '口' : '股';
   const watch = ['waiting', 'ready'].includes(st) ? planWatch(p) : null;
-  const sub = p.repeat ? `${REPEAT[p.repeat]}・下次 ${fmtDay(next)}` : watch ? planWatchText(watch) : next ? `買進日 ${fmtDay(next)}` : p.exp ? `${p.exp.slice(5).replace('-', '/')} 到期` : '';
+  // 中間：觸發條件（等待中的計畫改顯示現價，等的時候也看得到離目標多遠）
+  const trigger = p.price && !isOptAct(a) && a !== 'dca' ? `${a === 'sell' ? '漲到' : '跌到'} <span class="money">$${p.price}</span> ${a === 'sell' ? '以上就賣' : '以下就買'}` : '';
+  const sub = p.repeat ? (st === 'ready' ? `${REPEAT[p.repeat]}${PLAN_ACTIONS[a] === '定期買進' ? '買進' : ''}` : `${REPEAT[p.repeat]}・下次 ${fmtDay(next)}`) : st === 'waiting' && watch ? planWatchText(watch)
+    : trigger || (p.exp ? `${p.exp.slice(5).replace('-', '/')} 到期` : next ? `買進日 ${fmtDay(next)}` : '');
+  // 右邊（等待期過了之後）：到價提醒取代「可以執行」
+  const readyStatus = watch ? (watch.opt ? [`<span class="badge">距履約 ${pct(watch.gap, 1)}</span>`, `現價 <span class="money">${usd(watch.px)}</span>`]
+      : watch.hit ? ['<span class="badge hit">✓ 到價了</span>', `現價 <span class="money">${usd(watch.px)}</span>`]
+      : [`<span class="badge">還差 ${pctPlain(Math.abs(watch.gap), 1)}</span>`, `現價 <span class="money">${usd(watch.px)}</span>`])
+    : a === 'dca' ? [next === today() ? '<span class="badge solid">今天買</span>' : `<span class="badge">下次 ${next ? next.slice(5).replace('-', '/') : '—'}</span>`, '']
+    : ['<span class="badge solid">可以執行</span>', ''];
   const status = {
-    ready: [`<span class="badge solid">${next === today() ? '今天買' : '可以執行'}</span>`, ''],
+    ready: readyStatus,
     waiting: [`${planDots(p)}<span class="pl-left">${left} 天後</span>`, `${fmtDay(exec)} 起`],
     closed: ['<span class="badge muted">已完成</span>', (p.closedAt || p.created).slice(5).replace('-', '/')],
     void: ['<span class="badge muted">已作廢</span>', (p.closedAt || p.created).slice(5).replace('-', '/')],

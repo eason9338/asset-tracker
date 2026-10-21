@@ -123,6 +123,7 @@ button.danger { color: var(--danger); }
 .badge.xs { font-size: 10px; padding: 0 5px; margin-left: 4px; }
 .badge.accent { background: var(--accent-soft); color: var(--accent); }
 .badge.solid { background: var(--accent); color: #fff; }
+.badge.hit { background: #1f9d55; color: #fff; }   /* 到價了：固定綠色 */
 .badge.good { background: color-mix(in srgb, var(--down) 15%, transparent); color: var(--down); }
 .badge.bad { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
 .badge.muted { background: transparent; color: var(--text-3); font-weight: 400; }
