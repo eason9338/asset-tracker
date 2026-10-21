@@ -38,6 +38,15 @@ const GROUP_NAME = {
 const grp = s => UNDERLYING[s] || s;
 const grpName = g => GROUP_NAME[g] || g;
 window.symGroup = s => ({ g: grp(s), name: grpName(grp(s)) });   // 給 app.js 用：代號屬於哪個標的
+window.periodPerf = (from, to) => {
+  // 從 from 前一個收盤到 to（含）為止：時間加權報酬、扣掉入金後賺到的錢、同期 QQQ／VOO
+  const h = data.history, i0 = h.findIndex(x => x.date >= from) - 1, i1 = h.map(x => x.date <= to).lastIndexOf(true);
+  if (i0 < 0 || i1 <= i0) return null;
+  const seg = h.slice(i0, i1 + 1), a = seg[0], b = seg.at(-1);
+  const flows = externalFlows().filter(f => f.date > a.date && f.date <= b.date).reduce((s, f) => s + f.usd, 0);
+  return { twr: dailyReturns(seg, outsideAsFlow()).reduce((p, x) => p * (1 + x.r), 1) - 1, gain: b.usd - a.usd - flows,
+           qqq: benchRet('QQQ', a.date, b.date), voo: benchRet('VOO', a.date, b.date) };
+};
 
 // 每日時間加權報酬（扣掉當段的入金出金），跟報酬率比較用同一套算法
 function dailyReturns(hist, outsideAsFlow = false) {
@@ -391,7 +400,7 @@ function renderHeat() {
   const cell = (map, ym, main) => {
     if (!(ym in map)) return `<td class="na">${main ? '·' : ''}</td>`;
     const v = map[ym] - 1;
-    return main ? `<td class="num" style="${color(v)}" title="${ym}：${pct(v)}（Nasdaq 100 ${pct((qq[ym] ?? NaN) - 1)}）">${pct(v, 1)}</td>` : `<td class="num">${pct(v, 1)}</td>`;
+    return main ? `<td class="num heat-cell" style="${color(v)}" title="${ym}：${pct(v)}（Nasdaq 100 ${pct((qq[ym] ?? NaN) - 1)}）・點一下看這個月的交易紀錄"><a href="/trades?ym=${ym}">${pct(v, 1)}</a></td>` : `<td class="num">${pct(v, 1)}</td>`;
   };
   const yearTotal = (map, y) => { const ms = Object.keys(map).filter(m => m.startsWith(y)); return ms.length ? ms.reduce((p, m) => p * map[m], 1) - 1 : null; };
   box.innerHTML = `<div class="table-wrap" style="margin:0"><table class="heat">
@@ -399,10 +408,10 @@ function renderHeat() {
     <tbody>${years.map(y => {
       const yt = yearTotal(me, y), qt = yearTotal(qq, y);
       return `<tr><td class="lbl"><b>${y}</b></td>${Array.from({ length: 12 }, (_, i) => cell(me, `${y}-${String(i + 1).padStart(2, '0')}`, true)).join('')}
-          <td class="num" style="${color(yt)}"><b>${pct(yt, 1)}</b></td></tr>
+          <td class="num heat-cell" style="${color(yt)}" title="點一下看 ${y} 年的交易紀錄"><a href="/trades?y=${y}"><b>${pct(yt, 1)}</b></a></td></tr>
         <tr class="bm"><td class="lbl">Nasdaq 100</td>${Array.from({ length: 12 }, (_, i) => cell(qq, `${y}-${String(i + 1).padStart(2, '0')}`, false)).join('')}<td class="num">${pct(qt, 1)}</td></tr>`;
     }).join('')}</tbody></table></div>
-    <div class="x-note">${outsideAsFlow() ? '目前把帳外獲利當入金計算（上方開關）。' : ''}每格是那個月的時間加權報酬；顏色越深代表漲跌越大。灰色那一列是同期 Nasdaq 100，方便比較。第一個月只從紀錄開始那天算起。</div>`;
+    <div class="x-note">${outsideAsFlow() ? '目前把帳外獲利當入金計算（上方開關）。' : ''}每格是那個月的時間加權報酬；顏色越深代表漲跌越大。灰色那一列是同期 Nasdaq 100，方便比較。點任何一格可以看那個月的交易紀錄。</div>`;
 }
 
 // ============ 個股曝險總覽：把 ETF 拆成成分股 ============
@@ -1015,6 +1024,8 @@ function renderMonthly() {
       tip.innerHTML = `<div style="margin-bottom:4px">${k}</div>${K.map(([c, n]) => `<div class="row"><span>${n}</span><b>${usd(o[c], { sign: true })}</b></div>`).join('')}<div class="row"><span>合計</span><b>${usd(tot, { sign: true })}</b></div>`;
     });
     r.addEventListener('pointerleave', () => { tip.hidden = true; });
+    r.addEventListener('click', () => { location.href = `/trades?ym=${months[+r.dataset.mi]}`; });
+    r.style.cursor = 'pointer';
   });
   const sum = c => months.reduce((s, k) => s + m[k][c], 0);
   el('monthlyLegend').innerHTML = K.map(([c, n, col]) => `<span class="legend-item"><span class="swatch" style="border-color:${col};border-top-width:8px;width:10px"></span>${n} <b class="num">${usd0(sum(c), { sign: true })}</b></span>`).join('');

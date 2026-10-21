@@ -35,7 +35,19 @@ const inRange = (hist, r) => {
 let txFilter = 'all';
 let txLimit = 30;
 let txYear = 'all';        // 交易紀錄頁：只看某一年（同時套用到已實現損益與勝率表）
+let txMonths = new Set();  // 再細分到那一年的某幾個月（'01'～'12'，空的代表整年）
 let txSearch = '';         // 交易紀錄頁：代號搜尋
+{ // 網址可以直接帶期間，例如 /trades?ym=2025-10 或 /trades?y=2025&m=10,11,12
+  const q = new URLSearchParams(location.search), ym = q.get('ym');
+  if (ym && /^\d{4}-\d{2}$/.test(ym)) { txYear = ym.slice(0, 4); txMonths = new Set([ym.slice(5)]); }
+  else if (/^\d{4}$/.test(q.get('y') || '')) { txYear = q.get('y'); txMonths = new Set((q.get('m') || '').split(',').filter(m => /^\d{1,2}$/.test(m)).map(m => m.padStart(2, '0'))); }
+}
+const syncTxUrl = () => history.replaceState(null, '', location.pathname + (txYear === 'all' ? '' : `?y=${txYear}${txMonths.size ? '&m=' + [...txMonths].sort().map(Number).join(',') : ''}`));
+// 月份清單的文字：連續的寫成「10–12 月」，不連續的寫成「3、10 月」
+const monthsLabel = ms => {
+  const n = [...ms].map(Number).sort((a, b) => a - b);
+  return (n.length > 2 && n.every((v, i) => !i || v === n[i - 1] + 1) ? `${n[0]}–${n.at(-1)}` : n.join('、')) + ' 月';
+};
 
 // 每一頁只放自己的區塊：找不到的元素回傳一個不在畫面上的空 div，寫進去不會出錯，圖表也會因為量不到寬度而略過
 const $ = s => document.querySelector(s) || document.createElement('div');
@@ -334,10 +346,24 @@ function realizedStats() {
   }
   return { stock, sells, perSell, bySym, stockEvents, estimated, option, perOpt, optEvents, expiries, openPos, closes, expired, open, partial, div, divN, refund, interest, outside };
 }
+// 選了期間時，上方列出那段期間的帳戶報酬與大盤（每個月分開算再連乘，月份不連續也正確）
+function renderTxPeriod() {
+  const box = $('#txPeriod');
+  if (txYear === 'all' || !window.periodPerf) { box.innerHTML = ''; return; }
+  const ms = txMonths.size ? [...txMonths].sort() : Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
+  const parts = ms.map(m => window.periodPerf(`${txYear}-${m}-01`, `${txYear}-${m}-31`)).filter(Boolean);
+  if (!parts.length) { box.innerHTML = ''; return; }
+  const chain = k => parts.some(p => p[k] == null) ? null : parts.reduce((a, p) => a * (1 + p[k]), 1) - 1;
+  const me = chain('twr'), q = chain('qqq'), v = chain('voo'), gain = parts.reduce((a, p) => a + p.gain, 0);
+  const p = x => x == null ? '—' : fmtPct(x);
+  box.innerHTML = `<div class="tx-period"><span class="tx-period-h">${txYear} 年${txMonths.size ? ' ' + monthsLabel(txMonths) : ''}</span>
+    <span>我的報酬率 <b class="num ${cls(me)}">${p(me)}</b></span><span>Nasdaq 100 <b class="num">${p(q)}</b></span><span>S&amp;P 500 <b class="num">${p(v)}</b></span>
+    <span>賺到的錢 <b class="num ${cls(gain)}">${fmt(gain, 'USD', { sign: true, digits: 0 })}</b></span></div>`;
+}
 // 只看某一年：已實現事件、股息等都只留那一年的
-function yearView(st, y) {
+function yearView(st, y, months) {
   if (y === 'all') return st;
-  const inY = d => d.startsWith(y);
+  const inY = d => d.startsWith(y) && (!months?.size || months.has(d.slice(5, 7)));
   const stockEvents = st.stockEvents.filter(e => inY(e.date)), optEvents = st.optEvents.filter(e => inY(e.date)), bySym = {};
   for (const e of stockEvents) bySym[e.sym] = (bySym[e.sym] || 0) + e.r;
   let div = 0, divN = 0, refund = 0, interest = 0, outside = 0;
@@ -348,7 +374,7 @@ function yearView(st, y) {
     else if (c.startsWith('利息')) interest += v; else if (c.startsWith('帳外獲利')) outside += v;
   }
   const sum = a => a.reduce((s, e) => s + e.r, 0);
-  return { ...st, year: y, stockEvents, optEvents, bySym, stock: sum(stockEvents), sells: stockEvents.length, option: sum(optEvents),
+  return { ...st, year: months?.size ? `${y} 年 ${monthsLabel(months)}` : y, stockEvents, optEvents, bySym, stock: sum(stockEvents), sells: stockEvents.length, option: sum(optEvents),
            closes: optEvents.filter(e => !e.expired).length, expired: optEvents.filter(e => e.expired).length, open: 0, partial: 0,
            div, divN, refund, interest, outside };
 }
@@ -384,7 +410,7 @@ function renderPnl(st) {
   const dividends = st.div + st.refund;
   const panels = {
     all: { k: '總已實現損益', v: st.stock + st.option + dividends + st.outside,
-      s: [st.year ? `${st.year} 年・股票 + 選擇權 + 股息${st.outside ? ' + 帳外獲利' : ''}` : firstDate ? `期間 ${firstDate} 起・股票 + 選擇權 + 股息${st.outside ? ' + 帳外獲利' : ''}` : ''],
+      s: [st.year ? `${st.year}${/月$/.test(st.year) ? '' : ' 年'}・股票 + 選擇權 + 股息${st.outside ? ' + 帳外獲利' : ''}` : firstDate ? `期間 ${firstDate} 起・股票 + 選擇權 + 股息${st.outside ? ' + 帳外獲利' : ''}` : ''],
       parts: [['trade', '股票', st.stock], ['option', '選擇權', st.option], ['cash', '股息', dividends],
               ...(st.outside ? [['cash', '帳外獲利', st.outside]] : [])] },
     trade: { k: '股票已實現損益', v: st.stock,
@@ -457,9 +483,15 @@ function renderTx() {
   const years = [...new Set(data.transactions.map(t => t.date.slice(0, 4)))].sort().reverse();
   if (txYear !== 'all' && !years.includes(txYear)) txYear = 'all';
   $('#txYearSeg').innerHTML = ['all', ...years].map(y => `<button data-ty="${y}" class="${y === txYear ? 'on' : ''}">${y === 'all' ? '全部' : y}</button>`).join('');
-  renderPnl(yearView(st, txYear));
+  // 月份：選了年份才出現，可以複選；沒有紀錄的月份不能點
+  const withTx = new Set(data.transactions.filter(t => t.date.startsWith(txYear)).map(t => t.date.slice(5, 7)));
+  $('#txMonthSeg').hidden = txYear === 'all';
+  $('#txMonthSeg').innerHTML = txYear === 'all' ? '' : `<button data-tm="all" class="${txMonths.size ? '' : 'on'}">全年</button>` +
+    Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => `<button data-tm="${m}" class="${txMonths.has(m) ? 'on' : ''}" ${withTx.has(m) ? '' : 'disabled'}>${+m}月</button>`).join('');
+  renderPnl(yearView(st, txYear, txMonths));
+  renderTxPeriod();
   let list = [...data.transactions, ...st.expiries].sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
-  if (txYear !== 'all') list = list.filter(t => t.date.startsWith(txYear));
+  if (txYear !== 'all') list = list.filter(t => t.date.startsWith(txYear) && (!txMonths.size || txMonths.has(t.date.slice(5, 7))));
   if (txSearch) {
     // 代號搜尋：股票、選擇權（含標的）、股息都比對
     const hit = t => [t.symbol, t.symbol && occ(t.symbol)?.root, t.category].some(v => v && String(v).toUpperCase().includes(txSearch));
@@ -652,6 +684,7 @@ async function loadBench() {
     bench = await r.json();
   } catch { bench = null; }
   renderCompare();
+  if (has('#txPeriod')) renderTxPeriod();   // 期間績效要用到指數的歷史價
   if (typeof renderExtras === 'function') renderExtras();
 }
 function lastOnOrBefore(series, d) {
@@ -1281,7 +1314,12 @@ document.addEventListener('click', e => {
   else if (b.dataset.lrange) { levRange = b.dataset.lrange; renderLev(); $$('#levRangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
   else if (b.dataset.crange) { cmpRange = b.dataset.crange; renderCompare(); $$('#cmpRangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
   else if (b.dataset.f) { txFilter = b.dataset.f; txLimit = 30; render(); }
-  else if (b.dataset.ty) { txYear = b.dataset.ty; txLimit = 30; renderTx(); }
+  else if (b.dataset.ty) { txYear = b.dataset.ty; txMonths = new Set(); txLimit = 30; syncTxUrl(); renderTx(); }
+  else if (b.dataset.tm) {
+    if (b.dataset.tm === 'all') txMonths = new Set();
+    else if (txMonths.has(b.dataset.tm)) txMonths.delete(b.dataset.tm); else txMonths.add(b.dataset.tm);
+    txLimit = 30; syncTxUrl(); renderTx();
+  }
   else if (b.dataset.reclass) {
     // 只改分類（影響報酬率怎麼算），不動金額；重新上傳券商檔案也會保留
     const t = data.transactions.find(x => x.id === b.dataset.reclass);
