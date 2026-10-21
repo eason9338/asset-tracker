@@ -1078,14 +1078,14 @@ function renderYearly(c) {
     const twr = dailyReturns(hist.slice(iStart, iEnd + 1), outsideAsFlow()).reduce((p, x) => p * (1 + x.r), 1) - 1;
     const yv = yearView(st, y);
     const fee = Object.entries(fees).filter(([k]) => k.startsWith(y)).reduce((s, [, o]) => s + o.stock + o.opt + o.int, 0);
-    return { y, isNow, start: start.usd, flows, end, gain: end - start.usd - flows, twr, spx: benchRet('VOO', start.date, endDate),
+    return { y, isNow, from: start.date >= `${y}-01-01` ? start.date : null, start: start.usd, flows, end, gain: end - start.usd - flows, twr, spx: benchRet('VOO', start.date, endDate),
              stock: yv.stock, option: yv.option, div: yv.div + yv.refund, fee };
   });
   const money = v => `<span class="num">${usd0(v)}</span>`, signed = v => `<span class="num ${cls(v)}">${usd0(v, { sign: true })}</span>`;
   box.innerHTML = `<div class="table-wrap" style="margin:0"><table class="x-table year-table"><thead><tr>
       <th class="l">年份</th><th>年初資產</th><th>淨入金</th><th>年底資產</th><th>賺到的錢</th><th>報酬率</th><th>S&amp;P 500</th>
       <th class="sep">股票已實現</th><th>選擇權已實現</th><th>股息</th><th>交易成本</th></tr></thead>
-    <tbody>${rows.map(r => `<tr><td class="l"><b>${r.y}</b>${r.isNow ? '<span class="x-sub">至今</span>' : ''}</td>
+    <tbody>${rows.map(r => `<tr><td class="l"><b>${r.y}</b>${r.isNow ? '<span class="x-sub">至今</span>' : r.from ? `<span class="x-sub">${+r.from.slice(5, 7)}/${+r.from.slice(8)} 開始</span>` : ''}</td>
       <td>${money(r.start)}</td><td>${money(r.flows)}</td><td>${money(r.end)}</td><td><b>${signed(r.gain)}</b></td>
       <td><b class="num ${cls(r.twr)}">${pct(r.twr)}</b></td><td><span class="num">${r.spx == null ? '—' : pct(r.spx)}</span></td>
       <td class="sep">${signed(r.stock)}</td><td>${signed(r.option)}</td><td>${signed(r.div)}</td><td>${money(r.fee)}</td></tr>`).join('')}</tbody></table></div>

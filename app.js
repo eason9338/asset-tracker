@@ -854,8 +854,8 @@ function buildImport(trades, positions) {
   const fresh = trades.filter(r => { if (existing.has(r.key)) { plan.dup++; return false; } return true; });
 
   // 先找出手動記過的同一筆交易（同代號、同方向、同股數、日期差 3 天內）：改用券商的精確數字取代
-  // 帳戶類別之間的移轉（現金帳戶 ↔ 融資帳戶，TFR TO/FROM TYPE）每檔一進一出、金額 0，不是買賣
-  const isXfer = r => r.kind === '其他' && /TFR (TO|FROM) TYPE/i.test(r.desc);
+  // 帳戶類別之間的移轉（現金帳戶 ↔ 融資帳戶，例如 TFR TO TYPE 1、TFR CASH TO MARGIN）每檔一進一出、金額 0，不是買賣
+  const isXfer = r => r.kind === '其他' && /\bTFR\b/i.test(r.desc) && !r.amt;
   const isStock = r => (/^(買進|賣出)/.test(r.kind) || r.kind === '其他') && r.sym && r.qty && !OPT_RE.test(r.sym) && !isXfer(r);
   const manual = data.transactions.filter(t => !t.key && !t.imported && (t.type === 'buy' || t.type === 'sell'));
   const matchOf = new Map();
@@ -1181,7 +1181,8 @@ async function rebuildHistory() {
       }
       const opt0 = Object.values(optState).reduce((a, o) => a + (o.pos ? o.carry : 0), 0);
       const usd0 = stock0 + opt0 + (cash0.USD || 0);
-      out.push({ date: prevDay, usd: round(usd0, 2), twd: Math.round(usd0 * rate0), fx: round(rate0, 4), exp: round(exp0, 2), backfilled: true, base: true });
+      // 紀錄從開戶開始（之前沒有任何持股與現金）就不放起點，走勢才不會從 0 跳上去
+      if (stock0 > 1 || Math.abs(opt0) > 1 || (cash0.USD || 0) > 50) out.push({ date: prevDay, usd: round(usd0, 2), twd: Math.round(usd0 * rate0), fx: round(rate0, 4), exp: round(exp0, 2), backfilled: true, base: true });
     }
     for (const d of days) {
       const s = snap[d], rate = lastOnOrBefore(fxSeries, d) || fx;
