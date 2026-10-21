@@ -1241,35 +1241,41 @@ function renderTreemap(c) {
   if (!keep.length) { box.innerHTML = UI.empty(pending ? '正在抓 ETF 成分股…' : '目前沒有持股'); return; }
   const base = keep.reduce((a, n) => a + n.v, 0);
   loadSectors(keep.filter(n => n.link).map(n => n.key));
-  for (const n of keep) if (n.link) n.cat = sectorOf(n.key);
-  const W = box.clientWidth, H = box.clientHeight;
-  const tiles = squarify(keep, { x: 0, y: 0, w: W, h: H });
-  box.innerHTML = tiles.map((t, i) => {
-    const big = t.w > 64 && t.h > 38, mid = t.w > 38 && t.h > 22;
-    // 同一類固定同一個顏色（不分深淺）
-    const color = t.gray ? 'var(--surface-2)' : `color-mix(in srgb, var(--c-${t.cat || 'tech'}) 42%, var(--surface))`;
-    const fg = t.gray ? 'var(--text-2)' : 'var(--text)';
-    const tag = t.link ? 'a' : 'div';
-    return `<${tag} class="tm-tile" data-ti="${i}" ${t.link ? `href="/symbol?s=${encodeURIComponent(t.key)}"` : ''}
-      style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${color};color:${fg}">
-      ${mid ? `<b style="font-size:${big ? Math.min(20, 11 + Math.sqrt(t.w * t.h) / 18) : 11}px">${esc(t.key)}</b>` : ''}${big ? `<span>${pctPlain(t.v / base, 1)}</span>` : ''}</${tag}>`;
-  }).join('') + '<div class="chart-tip" hidden></div>';
+  // 先依產業分區（每區上面寫產業名稱），區裡面才是各家公司；公司方塊全部同一個顏色，只用分區表示產業
+  const groups = {};
+  for (const n of keep) {
+    if (!n.link) continue;
+    const cat = sectorOf(n.key) || 'other';
+    (groups[cat] ??= { key: SECTORS.find(([k]) => k === cat)[1], cat, v: 0, kids: [] }).kids.push({ ...n, catName: SECTORS.find(([k]) => k === cat)[1] });
+    groups[cat].v += n.v;
+  }
+  const top = [...Object.values(groups), ...keep.filter(n => !n.link)].sort((a, b) => b.v - a.v);
+  const W = box.clientWidth, H = box.clientHeight, HEAD = 20, flat = [];
+  let html = '';
+  for (const g of squarify(top, { x: 0, y: 0, w: W, h: H })) {
+    if (!g.kids) { flat.push(g); html += tile(g, flat.length - 1, g.x, g.y, g.w, g.h); continue; }
+    const head = g.w > 70 && g.h > 50;   // 區塊夠大才放標題
+    html += `<div class="tm-group" style="left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px">${head ? `<div class="tm-head">${g.key} <span class="money">${pctPlain(g.v / base, 1)}</span></div>` : ''}</div>`;
+    const inner = { x: g.x + 2, y: g.y + (head ? HEAD : 2), w: g.w - 4, h: g.h - (head ? HEAD + 2 : 4) };
+    for (const t of squarify(g.kids.sort((a, b) => b.v - a.v), inner)) { flat.push(t); html += tile(t, flat.length - 1, t.x, t.y, t.w, t.h); }
+  }
+  function tile(t, i, x, y, w, h) {
+    const big = w > 64 && h > 38, mid = w > 38 && h > 22, tag = t.link ? 'a' : 'div';
+    return `<${tag} class="tm-tile${t.link ? '' : ' gray'}" data-ti="${i}" ${t.link ? `href="/symbol?s=${encodeURIComponent(t.key)}"` : ''}
+      style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">
+      ${mid ? `<b style="font-size:${big ? Math.min(20, 11 + Math.sqrt(w * h) / 18) : 11}px">${esc(t.key)}</b>` : ''}${big ? `<span>${pctPlain(t.v / base, 1)}</span>` : ''}</${tag}>`;
+  }
+  box.innerHTML = html + '<div class="chart-tip" hidden></div>';
   const tip = box.querySelector('.chart-tip');
   box.querySelectorAll('.tm-tile').forEach(n => {
     n.addEventListener('pointermove', e => {
-      const t = tiles[+n.dataset.ti], r = box.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+      const t = flat[+n.dataset.ti], r = box.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
       tip.hidden = false; tip.style.left = px + 'px'; tip.style.top = py + 'px';
       tip.style.transform = `translate(${px > W / 2 ? 'calc(-100% - 14px)' : '14px'}, ${py > H / 2 ? 'calc(-100% - 8px)' : '8px'})`;
-      // 兩行就好：名稱、金額和佔比
-      const cat = SECTORS.find(([k]) => k === t.cat)?.[1];
-      tip.innerHTML = `<b>${esc(t.key)}</b>${t.name ? ` ${esc(t.name)}` : ''}<br>${cat ? cat + '・' : ''}${usd0(t.v)}・${pctPlain(t.v / base, 1)}`;
+      tip.innerHTML = `<b>${esc(t.key)}</b>${t.name ? ` ${esc(t.name)}` : ''}<br>${t.catName ? t.catName + '・' : ''}${usd0(t.v)}・${pctPlain(t.v / base, 1)}`;
     });
     n.addEventListener('pointerleave', () => { tip.hidden = true; });
   });
-  // 圖例：每一類合計佔多少
-  const byCat = {};
-  for (const n of keep) if (n.link) byCat[n.cat || 'other'] = (byCat[n.cat || 'other'] || 0) + n.v;
-  el('treemapLegend').innerHTML = SECTORS.filter(([k]) => byCat[k]).map(([k, t]) => `<span class="legend-item"><span class="dot" style="background:color-mix(in srgb, var(--c-${k}) 60%, var(--surface))"></span>${t} <b class="num">${pctPlain(byCat[k] / base, 1)}</b></span>`).join('');
   el('treemapNote').innerHTML = all ? `佔淨資產 <span class="money">${usd0(base)}</span>` : `股票部位 <span class="money">${usd0(base)}</span>・淨資產的 <span class="money">${pctPlain(base / eq)}</span>`;
 }
 
