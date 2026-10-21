@@ -37,6 +37,7 @@ const GROUP_NAME = {
 };
 const grp = s => UNDERLYING[s] || s;
 const grpName = g => GROUP_NAME[g] || g;
+window.symGroup = s => ({ g: grp(s), name: grpName(grp(s)) });   // 給 app.js 用：代號屬於哪個標的
 
 // 每日時間加權報酬（扣掉當段的入金出金），跟報酬率比較用同一套算法
 function dailyReturns(hist, outsideAsFlow = false) {
@@ -80,7 +81,7 @@ function bsExtra(S, K, T, r, v, call) {
 const curRate = () => { const v = benchOk('^IRX') ? lastOnOrBefore(bench['^IRX'], today()) : null; return (v ?? 4) / 100; };
 
 // ---------- 小型圖表 ----------
-function lineChart(box, pts, { fmtY, fmtTip, color = 'var(--accent)', zero = false, area = true, ref = null, mark = null }) {
+function lineChart(box, pts, { fmtY, fmtTip, color = 'var(--accent)', zero = false, area = true, ref = null, mark = null, dots = [] }) {
   if (!box || box.clientWidth === 0) return;
   if (pts.length < 2) { box.innerHTML = '<div class="x-empty">資料不足</div>'; return; }
   const W = box.clientWidth, H = box.clientHeight, padL = 56, padR = 12, padT = 10, padB = 22;
@@ -102,6 +103,7 @@ function lineChart(box, pts, { fmtY, fmtTip, color = 'var(--accent)', zero = fal
     ${area ? `<path d="${line}L${x(x1)},${base}L${x(x0)},${base}Z" fill="${color}" opacity=".14"/>` : ''}
     <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>
     ${mark ? `<circle cx="${x(mark.x)}" cy="${y(mark.y)}" r="5" fill="${color}" stroke="var(--surface)" stroke-width="2"/>` : ''}
+    ${dots.map(d => `<circle cx="${x(d.x).toFixed(1)}" cy="${y(d.y).toFixed(1)}" r="${d.r || 4.5}" fill="${d.fill}" stroke="${d.stroke || 'var(--surface)'}" stroke-width="1.5"/>`).join('')}
     <text class="axis-text" x="${padL}" y="${H - 4}">${pts[0].label ?? ''}</text>
     <text class="axis-text" x="${W - padR}" y="${H - 4}" text-anchor="end">${pts.at(-1).label ?? ''}</text>
     <line class="xc" y1="${padT}" y2="${H - padB}" stroke="var(--text-3)" visibility="hidden"/>
@@ -923,7 +925,7 @@ function renderAnalysis() {
     const keep = anaShowAll ? rows : rows.filter(r => [...rows].sort((a, b) => Math.abs(b.total) - Math.abs(a.total)).slice(0, 12).includes(r));
     const cellW = w => w.n ? `${w.n} 筆<span class="x-sub">勝率 ${pctPlain(w.rate)}</span>` : '<span class="muted">—</span>';
     box.innerHTML = `<div class="table-wrap" style="margin:0"><table class="x-table"><thead><tr><th class="l">標的</th><th>股票</th><th>股票損益</th><th>選擇權</th><th>選擇權損益</th><th>合計</th></tr></thead>
-      <tbody>${keep.map(r => `<tr><td class="l"><b>${esc(grpName(r.g))}</b></td><td class="num">${cellW(r.s)}</td><td class="num ${cls(r.s.total)}">${r.s.n ? usd0(r.s.total, { sign: true }) : '—'}</td>
+      <tbody>${keep.map(r => `<tr><td class="l"><a class="sym-link" href="/symbol?s=${encodeURIComponent(r.g)}"><b>${esc(grpName(r.g))}</b></a></td><td class="num">${cellW(r.s)}</td><td class="num ${cls(r.s.total)}">${r.s.n ? usd0(r.s.total, { sign: true }) : '—'}</td>
         <td class="num">${cellW(r.o)}</td><td class="num ${cls(r.o.total)}">${r.o.n ? usd0(r.o.total, { sign: true }) : '—'}</td><td class="num ${cls(r.total)}"><b>${usd0(r.total, { sign: true })}</b></td></tr>`).join('')}</tbody></table></div>
       ${rows.length > 12 ? `<div style="text-align:center;margin-top:6px"><button class="ghost" data-anaall="1">${anaShowAll ? '只顯示影響最大的 12 檔' : `顯示全部 ${rows.length} 檔`}</button></div>` : ''}
       <div class="x-note">槓桿 ETF 與選擇權都併到標的本身計算（例如 GGLL、GOOGL 選擇權都算 Alphabet）。依合計損益排序；預設只列損益影響最大的 12 檔。</div>`;
@@ -1023,8 +1025,8 @@ function renderMonthly() {
 }
 
 // ============ 交易成本 ============
-function renderFees() {
-  const box = el('feeBox'); if (!box) return;
+function feesByMonth() {
+  // 每月的交易成本：股票規費、選擇權手續費、融資利息
   const m = {};
   const add = (d, k, v, n = 0) => { const o = m[d.slice(0, 7)] ??= { stock: 0, opt: 0, n: 0, c: 0, int: 0 }; o[k] += v; if (k === 'stock') o.n += n; if (k === 'opt') o.c += n; };
   for (const t of data.transactions) {
@@ -1038,7 +1040,11 @@ function renderFees() {
       add(t.date, 'opt', Math.max(fee, 0), Math.abs(t.qty));
     } else if (t.type === 'expense' && /利息支出/.test(t.category || '')) add(t.date, 'int', t.amount);
   }
-  const months = Object.keys(m).sort();
+  return m;
+}
+function renderFees() {
+  const box = el('feeBox'); if (!box) return;
+  const m = feesByMonth(), months = Object.keys(m).sort();
   if (!months.length) { box.innerHTML = '<div class="x-empty">沒有交易</div>'; return; }
   const tot = k => months.reduce((s, x) => s + m[x][k], 0);
   const st = realizedStats(), realized = st.stock + st.option;
@@ -1056,6 +1062,164 @@ function renderFees() {
     <div class="x-note">成本＝成交金額與實際收付金額的差（券商手續費、SEC／FINRA 規費等），由券商紀錄推算；融資利息是券商每月收的「融資利息費用」。買賣價差、匯差不在其中。</div>`;
 }
 
+// ============ 年度總結：每年一列 ============
+function renderYearly(c) {
+  const box = el('yearBox'); if (!box) return;
+  const hist = data.history;
+  const years = [...new Set(hist.filter(h => !h.base).map(h => h.date.slice(0, 4)))].sort().reverse();
+  if (!years.length) { box.innerHTML = '<div class="x-empty">資料還不夠</div>'; return; }
+  const st = realizedStats(), fees = feesByMonth(), flowsAll = externalFlows(), thisYear = today().slice(0, 4);
+  const rows = years.map(y => {
+    const iStart = Math.max(0, hist.findIndex(h => h.date >= `${y}-01-01`) - 1);   // 從前一年最後一個收盤起算
+    const iEnd = hist.map(h => h.date.slice(0, 4)).lastIndexOf(y);
+    const start = hist[iStart], isNow = y === thisYear;
+    const endDate = isNow ? today() : hist[iEnd].date, end = isNow ? c.totalUSD : hist[iEnd].usd;
+    const flows = flowsAll.filter(f => f.date > start.date && f.date <= endDate).reduce((s, f) => s + f.usd, 0);
+    const twr = dailyReturns(hist.slice(iStart, iEnd + 1), outsideAsFlow()).reduce((p, x) => p * (1 + x.r), 1) - 1;
+    const yv = yearView(st, y);
+    const fee = Object.entries(fees).filter(([k]) => k.startsWith(y)).reduce((s, [, o]) => s + o.stock + o.opt + o.int, 0);
+    return { y, isNow, start: start.usd, flows, end, gain: end - start.usd - flows, twr, spx: benchRet('VOO', start.date, endDate),
+             stock: yv.stock, option: yv.option, div: yv.div + yv.refund, fee };
+  });
+  const money = v => `<span class="num">${usd0(v)}</span>`, signed = v => `<span class="num ${cls(v)}">${usd0(v, { sign: true })}</span>`;
+  box.innerHTML = `<div class="table-wrap" style="margin:0"><table class="x-table year-table"><thead><tr>
+      <th class="l">年份</th><th>年初資產</th><th>淨入金</th><th>年底資產</th><th>賺到的錢</th><th>報酬率</th><th>S&amp;P 500</th>
+      <th class="sep">股票已實現</th><th>選擇權已實現</th><th>股息</th><th>交易成本</th></tr></thead>
+    <tbody>${rows.map(r => `<tr><td class="l"><b>${r.y}</b>${r.isNow ? '<span class="x-sub">至今</span>' : ''}</td>
+      <td>${money(r.start)}</td><td>${money(r.flows)}</td><td>${money(r.end)}</td><td><b>${signed(r.gain)}</b></td>
+      <td><b class="num ${cls(r.twr)}">${pct(r.twr)}</b></td><td><span class="num">${r.spx == null ? '—' : pct(r.spx)}</span></td>
+      <td class="sep">${signed(r.stock)}</td><td>${signed(r.option)}</td><td>${signed(r.div)}</td><td>${money(r.fee)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="x-note">賺到的錢＝年底 − 年初 − 淨入金（入金減出金）；報酬率是時間加權${outsideAsFlow() ? '，帳外獲利當入金' : ''}。今年的年底資產是目前的總資產。</div>`;
+}
+
+// ============ 標的查詢：某個標的的所有紀錄、勝率與買賣點 ============
+let symQ = (new URLSearchParams(location.search).get('s') || '').trim().toUpperCase(), symMember = '', symF = 'all', symLimit = 50;
+const symPx = {};   // 歷史收盤價快取
+const symOf = t => t.type === 'buy' || t.type === 'sell' ? t.symbol
+  : t.type === 'option' || t.type === 'expire' ? occ(t.symbol)?.root
+  : t.type === 'income' && /^股息 /.test(t.category || '') ? t.category.slice(3).trim() : null;
+function symIndex() {
+  // 每個標的（同公司不同股別、槓桿 ETF、選擇權都併在一起）有哪些代號、幾筆紀錄
+  const idx = {};
+  for (const t of data.transactions) {
+    const s = symOf(t); if (!s) continue;
+    const o = idx[grp(s)] ??= { g: grp(s), members: {}, n: 0 };
+    o.members[s] = (o.members[s] || 0) + 1; o.n++;
+  }
+  return idx;
+}
+function symGo(q) {
+  symQ = (q || '').trim().toUpperCase(); symMember = ''; symF = 'all'; symLimit = 50;
+  history.replaceState(null, '', symQ ? `/symbol?s=${encodeURIComponent(grp(symQ))}` : '/symbol');
+  renderSymbolPage(calc());
+}
+async function loadSymPx(sym, from) {
+  if (symPx[sym]) return;
+  symPx[sym] = 'loading';
+  try { symPx[sym] = (await (await fetch(`/api/history?symbols=${encodeURIComponent(sym)}&from=${from}`)).json())[sym] || { error: 1 }; }
+  catch { symPx[sym] = { error: 1 }; }
+  if (el('symChart')) renderSymbolPage(calc());
+}
+function renderSymbolPage(c) {
+  const box = el('symSummary'); if (!box) return;
+  const idx = symIndex(), ranked = Object.values(idx).sort((a, b) => b.n - a.n);
+  el('symOptions').innerHTML = ranked.flatMap(o => Object.keys(o.members)).map(s => `<option value="${esc(s)}">`).join('');
+  const g = symQ ? grp(symQ) : ranked[0]?.g, info = idx[g];
+  // 大盤、類股這類分組用中文名稱，個股用代號
+  el('symChips').innerHTML = ranked.slice(0, 12).map(o => `<button class="${o.g === g ? 'on' : ''}" data-sym-go="${esc(o.g)}">${esc(INDEX_GROUPS.has(o.g) ? grpName(o.g) : o.g)}<span>${o.n}</span></button>`).join('');
+  if (!info) {
+    box.innerHTML = `<div class="x-empty">找不到 ${esc(symQ)} 的紀錄</div>`;
+    ['symChart', 'symList', 'symMembers', 'symLegend'].forEach(id => { el(id).innerHTML = ''; });
+    el('symName').textContent = '總覽'; return;
+  }
+  if (document.activeElement !== el('symInput')) el('symInput').value = symQ || '';
+  const members = Object.entries(info.members).sort((a, b) => b[1] - a[1]);
+  if (symMember && !info.members[symMember]) symMember = '';
+  const inSel = s => !!s && (symMember ? s === symMember : grp(s) === g);
+  el('symName').textContent = grpName(g) + (symMember ? `・${symMember}` : '');
+  el('symMembers').innerHTML = members.length > 1 ? `<span class="seg">${[['', '全部'], ...members.map(([s]) => [s, s])].map(([s, t]) => `<button data-sym-member="${esc(s)}" class="${s === symMember ? 'on' : ''}">${esc(t)}</button>`).join('')}</span>` : '';
+
+  // ---- 總覽 ----
+  const st = realizedStats();
+  const se = st.stockEvents.filter(e => inSel(e.sym)), oe = st.optEvents.filter(e => inSel(occ(e.sym)?.root));
+  const sw = winStats(se), ow = winStats(oe), shortW = winStats(oe.filter(e => e.side === 'short')), longW = winStats(oe.filter(e => e.side === 'long'));
+  const recs = [...data.transactions, ...st.expiries].filter(t => inSel(symOf(t))).sort((a, b) => b.date.localeCompare(a.date) || (b.ts || 0) - (a.ts || 0));
+  const div = recs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+  const holdEv = stockHoldingEvents(st).filter(e => inSel(e.sym)), avgHold = holdEv.length ? holdEv.reduce((s, e) => s + e.hold, 0) / holdEv.length : null;
+  const heldRows = c.rows.filter(r => inSel(r.sym)), heldOpts = c.optRows.filter(o => inSel(occ(o.sym).root));
+  const all = [...se.map(e => ({ ...e, what: `賣出 ${e.sym}` })), ...oe.map(e => ({ ...e, what: optName(e.sym) + (e.expired ? ' 到期' : '') }))];
+  const best = all.reduce((a, e) => !a || e.r > a.r ? e : a, null), worst = all.reduce((a, e) => !a || e.r < a.r ? e : a, null);
+  const total = sw.total + ow.total + div;
+  const rate = w => w.rate == null ? '—' : pctPlain(w.rate);
+  const kv = (k, v) => `<div class="sym-kv"><span>${k}</span><span>${v}</span></div>`;
+  const signed = v => `<span class="num ${cls(v)}">${usd0(v, { sign: true })}</span>`;
+  box.innerHTML = `
+    <div class="sym-total"><div class="k">已實現損益合計</div><div class="v num ${cls(total)}">${usd0(total, { sign: true })}</div>
+      <div class="s">股票 ${signed(sw.total)}・選擇權 ${signed(ow.total)}${div ? `・股息 ${signed(div)}` : ''}</div></div>
+    <div class="sym-sec"><div class="sym-sec-h">股票</div>
+      ${sw.n ? kv('賣出', `${sw.n} 筆・勝率 <b>${rate(sw)}</b>`) + kv('平均賺／賠', `${signed(sw.avgW)} ／ ${signed(sw.avgL)}`) + kv('獲利因子', sw.pf == null ? '—' : sw.pf.toFixed(2)) + kv('平均持有', avgHold == null ? '—' : `${avgHold < 1 ? '不到 1' : Math.round(avgHold)} 天`)
+        : '<div class="x-sub">沒有賣出過</div>'}</div>
+    <div class="sym-sec"><div class="sym-sec-h">選擇權</div>
+      ${ow.n ? kv('平倉或到期', `${ow.n} 口・勝率 <b>${rate(ow)}</b>`) + (shortW.n ? kv('賣方', `${shortW.n} 口・勝率 ${rate(shortW)}・${signed(shortW.total)}`) : '') + (longW.n ? kv('買方', `${longW.n} 口・勝率 ${rate(longW)}・${signed(longW.total)}`) : '') + kv('獲利因子', ow.pf == null ? '—' : ow.pf.toFixed(2))
+        : '<div class="x-sub">沒有做過選擇權</div>'}</div>
+    ${best && best !== worst ? `<div class="sym-sec"><div class="sym-sec-h">最賺／最賠的一筆</div>
+      ${kv(`${best.date.slice(2).replace(/-/g, '/')} ${esc(best.what)}`, signed(best.r))}${kv(`${worst.date.slice(2).replace(/-/g, '/')} ${esc(worst.what)}`, signed(worst.r))}</div>` : ''}
+    <div class="sym-sec"><div class="sym-sec-h">目前持有</div>
+      ${heldRows.length || heldOpts.length ? heldRows.map(r => kv(esc(r.sym), `${fmtShares(r.shares)} 股・<span class="num">${usd0(r.value)}</span>`)).join('') + heldOpts.map(o => kv(esc(optName(o.sym)), `${o.qty} 口・<span class="num">${usd0(o.value)}</span>`)).join('')
+        : '<div class="x-sub">目前沒有持有</div>'}</div>
+    <div class="sym-sec">${kv('期間', `${recs.at(-1).date} ～ ${recs[0].date}`)}${kv('紀錄', `${recs.length} 筆`)}</div>`;
+
+  // ---- 價格走勢與買賣點：畫交易最多的那個代號 ----
+  const chartSym = symMember || (info.members[g] ? g : members[0][0]);
+  const first = recs.at(-1).date, from = new Date(new Date(first).getTime() - 14 * 864e5).toISOString().slice(0, 10);
+  const ser = symPx[chartSym];
+  const legendSym = members.length > 1 && !symMember ? `<span class="x-sub" style="display:inline">圖上只標 ${esc(chartSym)} 的操作</span>` : '';
+  el('symLegend').innerHTML = `<span class="legend-item"><span class="dot" style="background:var(--s1)"></span>買進</span><span class="legend-item"><span class="dot" style="background:var(--s2)"></span>賣出</span><span class="legend-item"><span class="dot hollow"></span>選擇權</span>${legendSym}`;
+  if (!ser) { loadSymPx(chartSym, from); el('symChart').innerHTML = '<div class="x-empty">載入股價中…</div>'; }
+  else if (ser === 'loading') { /* 等它載完 */ }
+  else if (ser.error) el('symChart').innerHTML = `<div class="x-empty">抓不到 ${esc(chartSym)} 的歷史股價</div>`;
+  else {
+    const ds = Object.keys(ser).filter(d => d >= from).sort();
+    const byDay = {};
+    for (const t of recs) if (symOf(t) === chartSym && t.type !== 'income') (byDay[t.date] ??= []).push(t);
+    const pts = ds.map(d => ({ x: new Date(d).getTime(), y: ser[d], d, label: d, trades: byDay[d] || [] }));
+    const at = d => pts.find(p => p.d >= d);
+    const dots = [];
+    for (const [d, ts] of Object.entries(byDay)) {
+      const p = at(d); if (!p) continue;
+      const stock = ts.filter(t => t.type === 'buy' || t.type === 'sell');
+      if (stock.length) dots.push({ x: p.x, y: p.y, fill: stock.some(t => t.type === 'sell') && !stock.some(t => t.type === 'buy') ? 'var(--s2)' : stock.some(t => t.type === 'buy') && !stock.some(t => t.type === 'sell') ? 'var(--s1)' : 'var(--s4)' });
+      else dots.push({ x: p.x, y: p.y, fill: 'var(--surface)', stroke: 'var(--text-2)', r: 3.5 });
+    }
+    const line = t => t.type === 'buy' ? `買 ${fmtShares(t.shares)} 股 @ ${usd(t.price)}` : t.type === 'sell' ? `賣 ${fmtShares(t.shares)} 股 @ ${usd(t.price)}`
+      : t.type === 'expire' ? `${esc(optName(t.symbol))} 到期` : `${t.qty > 0 ? '買' : '賣'} ${esc(optName(t.symbol))}`;
+    lineChart(el('symChart'), pts, { fmtY: v => '$' + (v >= 100 ? v.toFixed(0) : v.toFixed(2)), area: false, dots,
+      fmtTip: p => `${p.d}<br>收盤 <b>${usd(p.y)}</b>${p.trades.length ? '<br>' + p.trades.slice(0, 6).map(line).join('<br>') + (p.trades.length > 6 ? `<br>…還有 ${p.trades.length - 6} 筆` : '') : ''}` });
+  }
+
+  // ---- 全部紀錄 ----
+  document.querySelectorAll('[data-sym-f]').forEach(b => b.classList.toggle('on', b.dataset.symF === symF));
+  const shown = recs.filter(t => symF === 'all' || (symF === 'stock' ? t.type === 'buy' || t.type === 'sell' : symF === 'option' ? t.type === 'option' || t.type === 'expire' : t.type === 'income'));
+  const row = t => {
+    let type = '', what = '', amt = 0, r = null;
+    if (t.type === 'buy' || t.type === 'sell') {
+      type = t.split ? '分割' : t.type === 'buy' ? '買進' : '賣出';
+      what = t.split ? `${esc(t.symbol)} 分割，多 ${fmtShares(t.shares)} 股` : `${esc(t.symbol)} ${fmtShares(t.shares)} 股 @ <span class="num">${usd(t.price)}</span>`;
+      amt = t.type === 'buy' ? -t.total : t.total; r = t.type === 'sell' ? st.perSell[t.id] : null;
+    } else if (t.type === 'option') {
+      type = t.action === 'close' ? '平倉' : t.action === 'open' ? '開倉' : '選擇權';
+      what = `${t.qty > 0 ? 'BUY' : 'SELL'} ${esc(optName(t.symbol, t.desc))}`; amt = t.amount; r = st.perOpt[t.id];
+    } else if (t.type === 'expire') { type = '到期'; what = `${esc(optName(t.symbol, t.desc))}`; r = t.realized; }
+    else { type = '股息'; what = esc(t.category); amt = t.amount; }
+    return `<tr><td class="l">${t.date}</td><td class="l"><span class="tx-type">${type}</span></td><td class="l">${what}</td>
+      <td><span class="num">${t.type === 'expire' ? '—' : usd(amt, { sign: true })}</span></td><td>${r == null ? '' : `<span class="num ${cls(r)}">${usd(r, { sign: true })}</span>`}</td></tr>`;
+  };
+  el('symList').innerHTML = shown.length ? `<div class="table-wrap" style="margin:0"><table class="x-table sym-table"><thead><tr><th class="l">日期</th><th class="l">類型</th><th class="l">內容</th><th>金額</th><th>已實現</th></tr></thead>
+      <tbody>${shown.slice(0, symLimit).map(row).join('')}</tbody></table></div>
+      ${shown.length > symLimit ? `<div style="text-align:center;margin-top:8px"><button class="ghost" data-sym-more="1">顯示更多（還有 ${shown.length - symLimit} 筆）</button></div>` : ''}`
+    : '<div class="x-empty">沒有這類紀錄</div>';
+}
+
 // ============ 對外：每次畫面更新時呼叫 ============
 window.renderExtras = function renderExtras(c) {
   if (!data) return;
@@ -1068,6 +1232,7 @@ window.renderExtras = function renderExtras(c) {
     ['planList', () => renderPlans(c)], ['metricsBox', renderMetrics], ['heatBox', renderHeat],
     ['exposureBox', () => renderExposure(c)], ['etfBox', () => renderEtfView(c)], ['optRiskBox', () => renderOptRisk(c)],
     ['journalBox', renderJournal], ['analysisBox', renderAnalysis], ['monthlyBox', renderMonthly], ['feeBox', renderFees],
+    ['yearBox', () => renderYearly(c)], ['symSummary', () => renderSymbolPage(c)],
   ];
   for (const [name, fn] of parts) {
     const b = el(name); if (!b) continue;
@@ -1123,6 +1288,11 @@ document.addEventListener('click', e => {
   }
   else if (b.dataset.jdel) { if (confirmClick(b, '✕')) { data.journal = (data.journal || []).filter(j => j.id !== b.dataset.jdel); save(); renderJournal(); } }
   else if (b.dataset.x === 'metrics') { metricsRange = b.dataset.v; store.set('metricsRange', metricsRange); renderMetrics(); }
+  else if (b.dataset.symGo) symGo(b.dataset.symGo);
+  else if (b.id === 'symGoBtn') symGo(el('symInput').value);
+  else if (b.dataset.symMember != null) { symMember = b.dataset.symMember; symLimit = 50; renderSymbolPage(calc()); }
+  else if (b.dataset.symF) { symF = b.dataset.symF; symLimit = 50; renderSymbolPage(calc()); }
+  else if (b.dataset.symMore) { symLimit += 100; renderSymbolPage(calc()); }
   else if (b.dataset.mrange) { monthlyRange = b.dataset.mrange; renderMonthly(); }
   else if (b.dataset.ana) { anaView = b.dataset.ana; store.set('anaView', anaView); renderAnalysis(); }
   else if (b.dataset.anaall) { anaShowAll = !anaShowAll; renderAnalysis(); }
@@ -1132,9 +1302,10 @@ document.addEventListener('click', e => {
   }
 });
 document.addEventListener('input', e => { if (e.target.closest('#planForm')) updatePlanCalc(); });
-document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'etfLookup') lookupEtf(); });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'etfLookup') lookupEtf(); if (e.key === 'Enter' && e.target.id === 'symInput') symGo(e.target.value); });
 document.addEventListener('change', e => {
   const t = e.target;
+  if (t.id === 'symInput' && t.value && symIndex()[grp(t.value.trim().toUpperCase())]) { symGo(t.value); return; }   // 從清單選了一個代號
   if (t.id === 'outsideFlowChk') { store.set('outsideAsFlow', t.checked ? '1' : '0'); window.renderExtras(); }
 });
 window.addEventListener('resize', () => { clearTimeout(window._rzx); window._rzx = setTimeout(() => window.renderExtras(), 200); });

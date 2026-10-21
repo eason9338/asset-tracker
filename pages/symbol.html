@@ -1,0 +1,28 @@
+<!-- 標的查詢：某個標的的所有紀錄、勝率與買賣點 -->
+<div class="col span-12">
+  <div class="card sym-bar">
+    <div class="sym-search">
+      <input id="symInput" type="search" list="symOptions" placeholder="輸入代號，例如 TSLA、GOOGL" autocomplete="off">
+      <button class="primary" id="symGoBtn">查詢</button>
+      <datalist id="symOptions"></datalist>
+    </div>
+    <div class="sym-chips" id="symChips"></div>
+  </div>
+</div>
+<div class="col span-8">
+  <div class="card">
+    <div class="card-head"><h2>價格走勢與買賣點</h2><span id="symMembers"></span></div>
+    <div class="legend" id="symLegend"></div>
+    <div class="chart-box tall" id="symChart"></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>全部紀錄</h2><span class="seg"><button data-sym-f="all">全部</button><button data-sym-f="stock">股票</button><button data-sym-f="option">選擇權</button><button data-sym-f="div">股息</button></span></div>
+    <div id="symList"></div>
+  </div>
+</div>
+<div class="col span-4">
+  <div class="card">
+    <div class="card-head"><h2 id="symName">總覽</h2></div>
+    <div id="symSummary"></div>
+  </div>
+</div>

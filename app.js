@@ -17,7 +17,7 @@ const levOf = s => data.settings.leverage?.[s] ?? LEV_DEFAULT[s] ?? 1;
 const OPT_RE = /^[A-Z.]+\d{6}[CP]\d{8}$/;
 let lastUpdate = null;
 let chartRange = '365';    // 總資產走勢的區間：天數、'ytd' 或 '0'（全部）；預設一年
-let cmpRange = '0';         // 報酬率比較的區間
+let cmpRange = '365';       // 報酬率比較的區間；預設一年
 let levRange = '365';      // 槓桿率走勢的區間；預設一年
 function rangeCutoff(r) {
   if (r === 'ytd') return new Date().getFullYear() + '-01-01';
@@ -34,6 +34,8 @@ const inRange = (hist, r) => {
 };
 let txFilter = 'all';
 let txLimit = 30;
+let txYear = 'all';        // 交易紀錄頁：只看某一年（同時套用到已實現損益與勝率表）
+let txSearch = '';         // 交易紀錄頁：代號搜尋
 
 // 每一頁只放自己的區塊：找不到的元素回傳一個不在畫面上的空 div，寫進去不會出錯，圖表也會因為量不到寬度而略過
 const $ = s => document.querySelector(s) || document.createElement('div');
@@ -221,7 +223,7 @@ function render() {
     hb.innerHTML = c.rows.map(r => {
       const share = r.value != null ? r.value / totalAssetUSD : 0;
       return `<tr>
-        <td><span class="sym">${esc(r.sym)}</span>${r.lev !== 1 ? `<span class="lev">${r.lev}x</span>` : ''}<span class="sym-name">${esc(r.name || '')}</span></td>
+        <td><a class="sym sym-link" href="/symbol?s=${encodeURIComponent(window.symGroup?.(r.sym).g || r.sym)}">${esc(r.sym)}</a>${r.lev !== 1 ? `<span class="lev">${r.lev}x</span>` : ''}<span class="sym-name">${esc(r.name || '')}</span></td>
         <td class="num">${fmtShares(r.shares)}</td>
         <td class="num">${fmt(r.avg)}</td>
         <td class="num">${r.price != null ? fmt(r.price) + (SESSION_TAG[r.session] ? ` <span class="sess">${SESSION_TAG[r.session]}</span><span class="sym-name">收盤 ${fmt(r.regularPrice)}</span>` : '') : '<span class="muted">—</span>'}</td>
@@ -332,6 +334,24 @@ function realizedStats() {
   }
   return { stock, sells, perSell, bySym, stockEvents, estimated, option, perOpt, optEvents, expiries, openPos, closes, expired, open, partial, div, divN, refund, interest, outside };
 }
+// 只看某一年：已實現事件、股息等都只留那一年的
+function yearView(st, y) {
+  if (y === 'all') return st;
+  const inY = d => d.startsWith(y);
+  const stockEvents = st.stockEvents.filter(e => inY(e.date)), optEvents = st.optEvents.filter(e => inY(e.date)), bySym = {};
+  for (const e of stockEvents) bySym[e.sym] = (bySym[e.sym] || 0) + e.r;
+  let div = 0, divN = 0, refund = 0, interest = 0, outside = 0;
+  for (const t of data.transactions) {
+    if ((t.type !== 'income' && t.type !== 'expense') || t.currency !== 'USD' || !inY(t.date)) continue;
+    const v = (t.type === 'income' ? 1 : -1) * t.amount, c = t.category || '';
+    if (c.startsWith('股息')) { div += v; divN++; } else if (c.startsWith('退稅')) refund += v;
+    else if (c.startsWith('利息')) interest += v; else if (c.startsWith('帳外獲利')) outside += v;
+  }
+  const sum = a => a.reduce((s, e) => s + e.r, 0);
+  return { ...st, year: y, stockEvents, optEvents, bySym, stock: sum(stockEvents), sells: stockEvents.length, option: sum(optEvents),
+           closes: optEvents.filter(e => !e.expired).length, expired: optEvents.filter(e => e.expired).length, open: 0, partial: 0,
+           div, divN, refund, interest, outside };
+}
 // 勝率：每一筆已實現損益算一次（股票＝每筆賣出，選擇權＝每筆平倉或到期）；正負 1 分錢以內算打平
 function winStats(events) {
   const wins = events.filter(e => e.r > 0.005), losses = events.filter(e => e.r < -0.005);
@@ -364,7 +384,7 @@ function renderPnl(st) {
   const dividends = st.div + st.refund;
   const panels = {
     all: { k: '總已實現損益', v: st.stock + st.option + dividends + st.outside,
-      s: [firstDate ? `期間 ${firstDate} 起・股票 + 選擇權 + 股息${st.outside ? ' + 帳外獲利' : ''}` : ''],
+      s: [st.year ? `${st.year} 年・股票 + 選擇權 + 股息${st.outside ? ' + 帳外獲利' : ''}` : firstDate ? `期間 ${firstDate} 起・股票 + 選擇權 + 股息${st.outside ? ' + 帳外獲利' : ''}` : ''],
       parts: [['trade', '股票', st.stock], ['option', '選擇權', st.option], ['cash', '股息', dividends],
               ...(st.outside ? [['cash', '帳外獲利', st.outside]] : [])] },
     trade: { k: '股票已實現損益', v: st.stock,
@@ -433,8 +453,21 @@ const TX_LABEL = { buy: '買進', sell: '賣出', income: '收入', expense: '�
 function renderTx() {
   if (!has('#txBody')) return;   // 只有交易紀錄頁才有
   const st = realizedStats();
-  renderPnl(st);
+  // 年份切換：有交易的年份，新的在前
+  const years = [...new Set(data.transactions.map(t => t.date.slice(0, 4)))].sort().reverse();
+  if (txYear !== 'all' && !years.includes(txYear)) txYear = 'all';
+  $('#txYearSeg').innerHTML = ['all', ...years].map(y => `<button data-ty="${y}" class="${y === txYear ? 'on' : ''}">${y === 'all' ? '全部' : y}</button>`).join('');
+  renderPnl(yearView(st, txYear));
   let list = [...data.transactions, ...st.expiries].sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
+  if (txYear !== 'all') list = list.filter(t => t.date.startsWith(txYear));
+  if (txSearch) {
+    // 代號搜尋：股票、選擇權（含標的）、股息都比對
+    const hit = t => [t.symbol, t.symbol && occ(t.symbol)?.root, t.category].some(v => v && String(v).toUpperCase().includes(txSearch));
+    list = list.filter(hit);
+  }
+  const sg = txSearch && (window.symGroup?.(txSearch) || { g: txSearch, name: txSearch });
+  $('#txSymLink').innerHTML = txSearch && list.length ? `<a class="card-link" href="/symbol?s=${encodeURIComponent(sg.g)}">看 ${esc(sg.name)} 的完整分析 →</a>` : '';
+  $('#txCount').textContent = txSearch || txYear !== 'all' ? `${list.length} 筆` : '';
   if (txFilter === 'trade') list = list.filter(t => ['buy', 'sell', 'adjust'].includes(t.type));
   if (txFilter === 'option') list = list.filter(t => t.type === 'option' || t.type === 'expire');
   if (txFilter === 'cash') list = list.filter(t => ['income', 'expense'].includes(t.type));
@@ -1247,6 +1280,7 @@ document.addEventListener('click', e => {
   else if (b.dataset.lrange) { levRange = b.dataset.lrange; renderLev(); $$('#levRangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
   else if (b.dataset.crange) { cmpRange = b.dataset.crange; renderCompare(); $$('#cmpRangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
   else if (b.dataset.f) { txFilter = b.dataset.f; txLimit = 30; render(); }
+  else if (b.dataset.ty) { txYear = b.dataset.ty; txLimit = 30; renderTx(); }
   else if (b.dataset.reclass) {
     // 只改分類（影響報酬率怎麼算），不動金額；重新上傳券商檔案也會保留
     const t = data.transactions.find(x => x.id === b.dataset.reclass);
@@ -1267,6 +1301,7 @@ $('#exportBtn').onclick = () => {
 $('#brokerBtn').onclick = () => $('#brokerFile').click();
 $('#brokerFile').onchange = e => { const f = [...e.target.files]; e.target.value = ''; handleBrokerFiles(f); };
 // 也可以直接把檔案拖進網頁
+document.addEventListener('input', e => { if (e.target.id === 'txSearch') { txSearch = e.target.value.trim().toUpperCase(); txLimit = 30; renderTx(); } });
 document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => {
   e.preventDefault();

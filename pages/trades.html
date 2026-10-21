@@ -5,6 +5,12 @@
       <h2>已實現損益與紀錄</h2>
       <div class="filters seg" id="txFilter"><button data-f="all">全部</button><button data-f="trade">股票</button><button data-f="option">選擇權</button><button data-f="cash">資金・股息</button></div>
     </div>
+    <div class="tx-tools">
+      <span class="seg" id="txYearSeg"></span>
+      <input id="txSearch" type="search" placeholder="搜尋代號，例如 TSLL" autocomplete="off">
+      <span class="muted" style="font-size:12px" id="txCount"></span>
+      <span id="txSymLink" style="margin-left:auto"></span>
+    </div>
     <div id="pnlGrid"></div>
     <div class="table-wrap">
       <table>

@@ -202,3 +202,36 @@ details.x-details > summary { cursor: pointer; font-size: 13px; color: var(--tex
   .expo-row { grid-template-columns: minmax(110px, 160px) minmax(60px, 1fr) minmax(90px, auto) minmax(140px, 1.1fr); padding: 5px 0; }
   .expo-row .hbar-items { grid-column: auto; margin: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; }
 }
+
+/* ---------- 交易紀錄：年份、搜尋 ---------- */
+.tx-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+#txSearch { width: 220px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); font: inherit; font-size: 13px; color: var(--text); }
+a.sym-link { color: inherit; text-decoration: none; }
+a.sym-link:hover { color: var(--accent); text-decoration: underline; }
+
+/* ---------- 年度總結 ---------- */
+.year-table td, .year-table th { white-space: nowrap; }
+.year-table .sep { border-left: 1px solid var(--border); }
+
+/* ---------- 標的查詢 ---------- */
+.sym-bar { padding: 14px 18px; }
+.sym-search { display: flex; gap: 8px; }
+.sym-search input { flex: 0 1 320px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); font: inherit; font-size: 14px; color: var(--text); }
+.sym-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.sym-chips button { padding: 4px 10px; font-size: 13px; border-radius: 99px; background: var(--surface-2); border-color: transparent; }
+.sym-chips button span { margin-left: 6px; font-size: 11px; color: var(--text-3); }
+.sym-chips button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.sym-total { background: var(--surface-2); border-radius: 10px; padding: 12px 14px; }
+.sym-total .k { font-size: 12px; color: var(--text-2); }
+.sym-total .v { font-size: 26px; font-weight: 650; margin: 2px 0; }
+.sym-total .s { font-size: 12px; color: var(--text-2); }
+.sym-sec { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.sym-sec:last-child { border-bottom: 0; padding-bottom: 0; }
+.sym-sec-h { font-size: 12px; font-weight: 600; color: var(--text-3); margin-bottom: 4px; }
+.sym-kv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 3px 0; }
+.sym-kv > span:first-child { color: var(--text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sym-kv > span:last-child { text-align: right; white-space: nowrap; }
+.legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
+.legend .dot.hollow { background: var(--surface); border: 1.5px solid var(--text-2); }
+.sym-table td { white-space: nowrap; }
+
