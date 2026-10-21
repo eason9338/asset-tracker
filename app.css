@@ -500,3 +500,13 @@ a.sym-link:hover { color: var(--accent); text-decoration: underline; }
 /* 不是金額的，維持清楚：日期、天數 */
 :root.calm:not(.peek) .wrap .ev-days,
 :root.calm:not(.peek) #txBody td:first-child { color: inherit !important; background: transparent !important; pointer-events: auto; }
+
+/* ---- 持倉配置方塊圖 ---- */
+.chart-box.treemap { height: 380px; border-radius: var(--r-md); overflow: hidden; }
+.tm-tile { position: absolute; display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; padding: 6px 8px; overflow: hidden;
+  border: 1.5px solid var(--surface); border-radius: 6px; text-decoration: none; line-height: 1.15; transition: filter .1s; }
+.tm-tile:hover { filter: brightness(1.08); }
+.tm-tile b { font-weight: 650; white-space: nowrap; }
+.tm-tile span { font-size: var(--fs-sm); opacity: .85; font-variant-numeric: tabular-nums; }
+.legend:empty { display: none; }
+

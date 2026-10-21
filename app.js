@@ -17,6 +17,7 @@ const levOf = s => data.settings.leverage?.[s] ?? LEV_DEFAULT[s] ?? 1;
 const OPT_RE = /^[A-Z.]+\d{6}[CP]\d{8}$/;
 let lastUpdate = null;
 let chartRange = '365';    // 總資產走勢的區間：天數、'ytd' 或 '0'（全部）；預設一年
+let chartMode = (() => { try { return localStorage.getItem('asset.chartMode') || 'total'; } catch { return 'total'; } })();   // 'total' 或 'principal'（本金與獲利）
 let cmpRange = '365';       // 報酬率比較的區間；預設一年
 let levRange = '365';      // 槓桿率走勢的區間；預設一年
 function rangeCutoff(r) {
@@ -546,10 +547,13 @@ function renderChart() {
   const cur = data.settings.displayCurrency;
   $('#chartCurLabel').textContent = '(' + cur + ')';
   const pts = inRange(data.history, chartRange).map(h => ({ date: h.date, v: cur === 'TWD' ? h.twd : h.usd }));
+  $$('#chartModeSeg button').forEach(b => b.classList.toggle('on', b.dataset.cmode === chartMode));
+  $('#chartLegend').innerHTML = '';
   if (pts.length < 2) {
     box.innerHTML = `<div class="empty" style="padding-top:80px">資料累積兩天以上就會出現走勢圖（目前 ${pts.length} 筆）</div>`;
     return;
   }
+  if (chartMode === 'principal') return renderPrincipalChart(box, pts, cur);
   const W = box.clientWidth, H = box.clientHeight, padL = 64, padR = 12, padT = 10, padB = 24;
   const vals = pts.map(p => p.v);
   let min = Math.min(...vals), max = Math.max(...vals);
@@ -600,6 +604,73 @@ function renderChart() {
     tip.innerHTML = `${best.date}　<b>${fmt(best.v, cur)}</b>` + (events[best.date] ? `<div style="margin-top:3px">◦ ${events[best.date].join('<br>◦ ')}</div>` : '');
   };
   hit.addEventListener('pointermove', move);
+  hit.addEventListener('pointerleave', () => { cx.setAttribute('visibility', 'hidden'); cd.setAttribute('visibility', 'hidden'); tip.hidden = true; });
+}
+
+// ============ 本金與獲利：總資產拆成「投入的本金」和「賺到的錢」 ============
+// 本金＝開始那天的總資產＋之後的入金減出金（帳外獲利算賺的，不算本金）；跟區間無關，一直從頭累計
+function principalSeries(cur) {
+  const h0 = data.history[0], out = {};
+  if (!h0) return out;
+  const fxAt = d => (data.history.find(h => h.date >= d) || {}).fx || fx || 1;
+  const flows = externalFlows().filter(f => f.date > h0.date).sort((a, b) => a.date.localeCompare(b.date));
+  let p = cur === 'TWD' ? h0.twd : h0.usd, i = 0;
+  for (const h of data.history) {
+    while (i < flows.length && flows[i].date <= h.date) { p += cur === 'TWD' ? flows[i].usd * fxAt(flows[i].date) : flows[i].usd; i++; }
+    out[h.date] = p;
+  }
+  return out;
+}
+function renderPrincipalChart(box, pts, cur) {
+  const ps = principalSeries(cur);
+  for (const p of pts) p.p = ps[p.date] ?? p.v;
+  const W = box.clientWidth, H = box.clientHeight, padL = 64, padR = 12, padT = 10, padB = 24;
+  const vals = pts.flatMap(p => [p.v, p.p]);
+  let min = Math.min(...vals, 0), max = Math.max(...vals);
+  max += (max - min) * 0.08;
+  const t0 = +new Date(pts[0].date), t1 = +new Date(pts.at(-1).date);
+  const x = d => padL + (+new Date(d) - t0) / (t1 - t0) * (W - padL - padR);
+  const y = v => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
+  const path = k => pts.map((p, i) => (i ? 'L' : 'M') + x(p.date).toFixed(1) + ',' + y(p[k]).toFixed(1)).join('');
+  const back = k => [...pts].reverse().map(p => 'L' + x(p.date).toFixed(1) + ',' + y(p[k]).toFixed(1)).join('');
+  const xa = x(pts[0].date).toFixed(1), xb = x(pts.at(-1).date).toFixed(1), base = H - padB;
+  const pLine = path('p'), vLine = path('v');
+  const between = vLine + back('p') + 'Z';                                   // 總資產和本金之間
+  const above = pLine + `L${xb},${padT}L${xa},${padT}Z`, below = pLine + `L${xb},${base}L${xa},${base}Z`;
+  const ticks = [0, 0.5, 1].map(f => min + (max - min) * f);
+  const compact = v => cur === 'TWD' ? (Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : (v / 1e3).toFixed(0) + 'K')
+    : (Math.abs(v) >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : '$' + (v / 1e3).toFixed(1) + 'K');
+  const last = pts.at(-1), gain = last.v - last.p;
+  $('#chartLegend').innerHTML = `<span class="legend-item"><span class="swatch" style="border-color:var(--accent)"></span>總資產 <b class="num">${fmt(last.v, cur)}</b></span>
+    <span class="legend-item"><span class="swatch dash" style="border-color:var(--text-2)"></span>投入的本金 <b class="num">${fmt(last.p, cur)}</b></span>
+    <span class="legend-item"><span class="dot" style="background:color-mix(in srgb, var(${gain >= 0 ? '--up' : '--down'}) 45%, transparent)"></span>賺到的錢 <b class="num ${cls(gain)}">${fmt(gain, cur, { sign: true })}</b></span>`;
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="本金與獲利">
+    <defs><clipPath id="pcA"><path d="${above}"/></clipPath><clipPath id="pcB"><path d="${below}"/></clipPath></defs>
+    ${ticks.map(t => `<line x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" stroke-dasharray="2 4"/>
+      <text class="axis-text" x="${padL - 8}" y="${y(t) + 4}" text-anchor="end">${compact(t)}</text>`).join('')}
+    <text class="axis-text" x="${padL}" y="${H - 4}">${pts[0].date}</text>
+    <text class="axis-text" x="${W - padR}" y="${H - 4}" text-anchor="end">${last.date}</text>
+    <path d="${pLine}L${xb},${base}L${xa},${base}Z" fill="var(--text-3)" opacity=".16"/>
+    <path d="${between}" fill="var(--up)" opacity=".3" clip-path="url(#pcA)"/>
+    <path d="${between}" fill="var(--down)" opacity=".3" clip-path="url(#pcB)"/>
+    <path d="${pLine}" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <path d="${vLine}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <line id="cx" y1="${padT}" y2="${base}" stroke="var(--text-3)" stroke-width="1" visibility="hidden"/>
+    <circle id="cd" r="4.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>
+    <rect x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent" id="hit"/>
+  </svg><div class="chart-tip" id="tip" hidden></div>`;
+  const hit = box.querySelector('#hit'), cx = box.querySelector('#cx'), cd = box.querySelector('#cd'), tip = box.querySelector('#tip');
+  hit.addEventListener('pointermove', e => {
+    const mx = e.clientX - box.getBoundingClientRect().left;
+    let best = pts[0];
+    for (const p of pts) if (Math.abs(x(p.date) - mx) < Math.abs(x(best.date) - mx)) best = p;
+    const px = x(best.date), py = y(best.v), g = best.v - best.p;
+    cx.setAttribute('x1', px); cx.setAttribute('x2', px); cx.setAttribute('visibility', 'visible');
+    cd.setAttribute('cx', px); cd.setAttribute('cy', py); cd.setAttribute('visibility', 'visible');
+    tip.hidden = false; tip.style.left = Math.min(Math.max(px, 90), W - 90) + 'px'; tip.style.top = py + 'px';
+    tip.innerHTML = `<div style="margin-bottom:3px">${best.date}</div><div class="row"><span>總資產</span><b>${fmt(best.v, cur)}</b></div>
+      <div class="row"><span>本金</span><b>${fmt(best.p, cur)}</b></div><div class="row"><span>賺到的錢</span><b>${fmt(g, cur, { sign: true })}</b></div>`;
+  });
   hit.addEventListener('pointerleave', () => { cx.setAttribute('visibility', 'hidden'); cd.setAttribute('visibility', 'hidden'); tip.hidden = true; });
 }
 
@@ -1306,6 +1377,7 @@ form.addEventListener('submit', e => {
 document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.cur) { data.settings.displayCurrency = b.dataset.cur; save(); render(); }
+  else if (b.dataset.cmode) { chartMode = b.dataset.cmode; try { localStorage.setItem('asset.chartMode', chartMode); } catch {} renderChart(); }
   else if (b.dataset.range) { chartRange = b.dataset.range; renderChart(); $$('#rangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
   else if (b.dataset.lrange) { levRange = b.dataset.lrange; renderLev(); $$('#levRangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
   else if (b.dataset.crange) { cmpRange = b.dataset.crange; renderCompare(); $$('#cmpRangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }

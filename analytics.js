@@ -432,7 +432,7 @@ async function loadEtfs(syms) {
   todo.forEach(s => etfAsked.add(s));
   try { Object.assign(etfData, await (await fetch('/api/etf-holdings?symbols=' + todo.join(','))).json()); }
   catch { todo.forEach(s => { etfData[s] = { error: '連不上伺服器' }; }); }
-  const c = calc(); renderExposure(c); renderEtfView(c);
+  const c = calc(); renderExposure(c); renderEtfView(c); renderTreemap(c);
 }
 function etfSource(sym) {
   // 回傳要拆的 ETF 代號；undefined 代表還在載入，null 代表沒辦法拆
@@ -1123,6 +1123,114 @@ function renderFees() {
     <div class="note">成本＝成交金額與實際收付金額的差（券商手續費、SEC／FINRA 規費等），由券商紀錄推算；融資利息是券商每月收的「融資利息費用」。買賣價差、匯差不在其中。</div>`;
 }
 
+// ============ 持有天數與損益：每一筆已實現交易一個點 ============
+let scView = 'all';
+function renderHoldScatter() {
+  const box = el('holdScatterBox'); if (!box || box.clientWidth === 0) return;
+  document.querySelectorAll('[data-sc]').forEach(b => b.classList.toggle('on', b.dataset.sc === scView));
+  const st = realizedStats();
+  const ev = [...(scView === 'option' ? [] : stockHoldingEvents(st).map(e => ({ ...e, kind: 's', name: e.sym }))),
+              ...(scView === 'stock' ? [] : optionLifeEvents(st).map(e => ({ ...e, kind: 'o', name: optName(e.sym) })))].filter(e => e.hold != null);
+  if (ev.length < 3) { box.innerHTML = UI.empty('已實現的交易還不夠'); el('holdScatterSum').innerHTML = ''; return; }
+  const W = box.clientWidth, H = box.clientHeight, padL = 56, padR = 12, padT = 10, padB = 24;
+  // 橫軸：持有天數，用平方根刻度（短天期才不會全擠在左邊）；縱軸：損益，極端的幾筆壓在邊緣
+  const maxD = Math.max(...ev.map(e => e.hold), 7), sx = d => Math.sqrt(Math.max(d, 0));
+  const x = d => padL + sx(d) / sx(maxD) * (W - padL - padR);
+  const abs = ev.map(e => Math.abs(e.r)).sort((a, b) => a - b), lim = Math.max(abs[Math.floor(abs.length * 0.97)] * 1.15, 1);
+  const y = v => padT + (1 - (Math.max(-lim, Math.min(lim, v)) + lim) / (2 * lim)) * (H - padT - padB);
+  const dTicks = [0, 1, 7, 30, 90, 180, 365, 730].filter(d => d <= maxD);
+  const pts = ev.map(e => ({ ...e, px: x(e.hold), py: y(e.r), clip: Math.abs(e.r) > lim }));
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="持有天數與損益">
+    ${[-lim, -lim / 2, 0, lim / 2, lim].map(t => `<line x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}" stroke="${t ? 'var(--border)' : 'var(--text-3)'}" ${t ? 'stroke-dasharray="2 4"' : ''}/>
+      <text class="axis-text" x="${padL - 8}" y="${y(t) + 4}" text-anchor="end">${usd0(t, { sign: !!t })}</text>`).join('')}
+    ${dTicks.map(d => `<line x1="${x(d)}" x2="${x(d)}" y1="${padT}" y2="${H - padB}" stroke="var(--border)" stroke-dasharray="2 4"/>
+      <text class="axis-text" x="${x(d)}" y="${H - 6}" text-anchor="middle">${d ? d + ' 天' : '當天'}</text>`).join('')}
+    ${pts.map(p => `<circle cx="${p.px.toFixed(1)}" cy="${p.py.toFixed(1)}" r="${p.clip ? 4.5 : 3.5}" fill="${p.clip ? 'var(--surface)' : p.kind === 's' ? 'var(--s1)' : 'var(--s2)'}"
+      stroke="${p.kind === 's' ? 'var(--s1)' : 'var(--s2)'}" stroke-width="${p.clip ? 1.5 : 0}" opacity="${p.clip ? 1 : .55}"/>`).join('')}
+    <circle class="xd" r="6" fill="none" stroke="var(--text)" stroke-width="1.5" visibility="hidden"/>
+    <rect x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent" class="xh"/>
+  </svg><div class="chart-tip" hidden></div>`;
+  const hit = box.querySelector('.xh'), ring = box.querySelector('.xd'), tip = box.querySelector('.chart-tip');
+  hit.addEventListener('pointermove', e => {
+    const r = box.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    let best = null, bd = 18 * 18;
+    for (const p of pts) { const d = (p.px - mx) ** 2 + (p.py - my) ** 2; if (d < bd) { bd = d; best = p; } }
+    if (!best) { ring.setAttribute('visibility', 'hidden'); tip.hidden = true; return; }
+    ring.setAttribute('cx', best.px); ring.setAttribute('cy', best.py); ring.setAttribute('visibility', 'visible');
+    tip.hidden = false; tip.style.left = best.px + 'px'; tip.style.top = best.py + 'px';
+    tip.style.transform = best.px > W / 2 ? 'translate(calc(-100% - 12px), -50%)' : 'translate(12px, -50%)';
+    tip.innerHTML = `<b>${esc(best.name)}</b><br>${best.date}・持有 ${best.hold < 1 ? '不到 1' : Math.round(best.hold)} 天<br>損益 <b>${usd(best.r, { sign: true })}</b>`;
+  });
+  hit.addEventListener('pointerleave', () => { ring.setAttribute('visibility', 'hidden'); tip.hidden = true; });
+  // 下面直接回答：抱久是不是比較好
+  const bucket = (t, f) => { const w = winStats(ev.filter(e => f(e.hold))); return w.n ? { k: t, v: usd(w.total / w.n, { sign: true }), vcls: `num ${cls(w.total)}`, s: `平均每筆・${w.n} 筆・勝率 ${pctPlain(w.rate)}` } : null; };
+  el('holdScatterSum').innerHTML = UI.tiles([bucket('持有 7 天以內', d => d < 7.5), bucket('持有 8–30 天', d => d >= 7.5 && d < 30.5), bucket('持有 30 天以上', d => d >= 30.5)])
+    + UI.note('每個點是一筆已實現的交易（藍色股票、橘色選擇權）；空心的點損益太大，壓在上下邊緣。持有天數用先進先出配對。');
+}
+
+// ============ 持倉配置方塊圖：ETF 拆成成分股後，每家公司佔多少 ============
+let tmView = 'stock';
+function squarify(items, rect) {
+  // 經典 squarified treemap：一列一列放，讓每塊盡量接近正方形
+  const total = items.reduce((a, n) => a + n.v, 0), k = rect.w * rect.h / total, out = [];
+  const nodes = items.map(n => ({ ...n, a: n.v * k }));
+  const worst = (row, side) => { const s = row.reduce((a, n) => a + n.a, 0), mx = Math.max(...row.map(n => n.a)), mn = Math.min(...row.map(n => n.a));
+    return Math.max(side * side * mx / (s * s), (s * s) / (side * side * mn)); };
+  const place = (row, r) => {
+    const s = row.reduce((a, n) => a + n.a, 0);
+    if (r.w >= r.h) { const cw = s / r.h; let cy = r.y; for (const n of row) { const nh = n.a / cw; out.push({ ...n, x: r.x, y: cy, w: cw, h: nh }); cy += nh; } return { x: r.x + cw, y: r.y, w: r.w - cw, h: r.h }; }
+    const rh = s / r.w; let cx = r.x; for (const n of row) { const nw = n.a / rh; out.push({ ...n, x: cx, y: r.y, w: nw, h: rh }); cx += nw; } return { x: r.x, y: r.y + rh, w: r.w, h: r.h - rh };
+  };
+  let row = [], r = { ...rect }, i = 0;
+  while (i < nodes.length) {
+    const side = Math.min(r.w, r.h);
+    if (!row.length || worst([...row, nodes[i]], side) <= worst(row, side)) row.push(nodes[i++]);
+    else { r = place(row, r); row = []; }
+  }
+  if (row.length) place(row, r);
+  return out;
+}
+function renderTreemap(c) {
+  const box = el('treemapBox'); if (!box || box.clientWidth === 0) return;
+  document.querySelectorAll('[data-tmv]').forEach(b => b.classList.toggle('on', b.dataset.tmv === tmView));
+  const { stocks, other, pending } = stockExposure(c), eq = c.totalUSD;
+  let items = stocks.filter(g => g.total > 0).map(g => ({ key: g.key, name: g.name, v: g.total, via: g.via, link: true }));
+  if (tmView === 'all') {
+    items.push(...other.filter(g => g.total > 0).map(g => ({ key: g.key, name: g.name, v: g.total, via: g.via, gray: true })));
+    if (c.cashUSD > 1) items.push({ key: 'USD', name: '現金', v: c.cashUSD, via: {}, gray: true });
+  }
+  items.sort((a, b) => b.v - a.v);
+  if (!items.length) { box.innerHTML = UI.empty(pending ? '正在抓 ETF 成分股…' : '目前沒有持股'); return; }
+  // 太小的合併成「其他 N 家」，方塊才看得清楚
+  const base = items.reduce((a, n) => a + n.v, 0), keep = items.filter((n, i) => i < 40 && n.v / base > 0.004), rest = items.filter(n => !keep.includes(n));
+  if (rest.length) keep.push({ key: `其他 ${rest.length} 家`, name: '', v: rest.reduce((a, n) => a + n.v, 0), via: {}, gray: true, many: true });
+  const W = box.clientWidth, H = box.clientHeight;
+  const tiles = squarify(keep, { x: 0, y: 0, w: W, h: H });
+  const stockMax = Math.max(...keep.filter(n => !n.gray).map(n => n.v), 1);
+  box.innerHTML = tiles.map((t, i) => {
+    const share = t.v / base, big = t.w > 64 && t.h > 38, mid = t.w > 38 && t.h > 22;
+    const color = t.gray ? 'var(--surface-2)' : `color-mix(in srgb, var(--accent) ${Math.round(28 + 62 * Math.sqrt(t.v / stockMax))}%, var(--surface))`;
+    const fg = t.gray ? 'var(--text-2)' : t.v / stockMax > 0.35 ? '#fff' : 'var(--text)';
+    const tag = t.link ? 'a' : 'div';
+    return `<${tag} class="tm-tile" data-ti="${i}" ${t.link ? `href="/symbol?s=${encodeURIComponent(t.key)}"` : ''}
+      style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${color};color:${fg}">
+      ${mid ? `<b style="font-size:${big ? Math.min(20, 11 + Math.sqrt(t.w * t.h) / 18) : 11}px">${esc(t.key)}</b>` : ''}${big ? `<span>${pctPlain(share, 1)}</span>` : ''}</${tag}>`;
+  }).join('') + '<div class="chart-tip" hidden></div>';
+  const tip = box.querySelector('.chart-tip');
+  box.querySelectorAll('.tm-tile').forEach(n => {
+    n.addEventListener('pointermove', e => {
+      const t = tiles[+n.dataset.ti], r = box.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+      tip.hidden = false; tip.style.left = px + 'px'; tip.style.top = py + 'px';
+      tip.style.transform = `translate(${px > W / 2 ? 'calc(-100% - 14px)' : '14px'}, ${py > H / 2 ? 'calc(-100% - 8px)' : '8px'})`;
+      const via = Object.entries(t.via || {}).sort((a, b) => b[1] - a[1]).slice(0, 4);
+      tip.innerHTML = `<b>${esc(t.key)}</b>${t.name ? ` ${esc(t.name)}` : ''}<br>${usd0(t.v)}・${tmView === 'all' ? '' : '股票部位的 '}${pctPlain(t.v / base, 1)}・淨資產的 ${pctPlain(t.v / eq, 1)}`
+        + (via.length ? '<br>' + via.map(([k, v]) => `${esc(k)} ${usd0(v)}`).join('・') : '');
+    });
+    n.addEventListener('pointerleave', () => { tip.hidden = true; });
+  });
+  el('treemapNote').textContent = tmView === 'all' ? `合計 ${usd0(base)}（淨資產）` : `個股曝險合計 ${usd0(base)}・淨資產的 ${pctPlain(base / eq)}`;
+}
+
 // ============ 年度總結：每年一列 ============
 function renderYearly(c) {
   const box = el('yearBox'); if (!box) return;
@@ -1294,6 +1402,7 @@ window.renderExtras = function renderExtras(c) {
     ['exposureBox', () => renderExposure(c)], ['etfBox', () => renderEtfView(c)], ['optRiskBox', () => renderOptRisk(c)],
     ['journalBox', renderJournal], ['analysisBox', renderAnalysis], ['monthlyBox', renderMonthly], ['feeBox', renderFees],
     ['yearBox', () => renderYearly(c)], ['symSummary', () => renderSymbolPage(c)],
+    ['holdScatterBox', renderHoldScatter], ['treemapBox', () => renderTreemap(c)],
   ];
   for (const [name, fn] of parts) {
     const b = el(name); if (!b) continue;
@@ -1354,6 +1463,8 @@ document.addEventListener('click', e => {
   else if (b.dataset.symMember != null) { symMember = b.dataset.symMember; symLimit = 50; renderSymbolPage(calc()); }
   else if (b.dataset.symF) { symF = b.dataset.symF; symLimit = 50; renderSymbolPage(calc()); }
   else if (b.dataset.symMore) { symLimit += 100; renderSymbolPage(calc()); }
+  else if (b.dataset.sc) { scView = b.dataset.sc; renderHoldScatter(); }
+  else if (b.dataset.tmv) { tmView = b.dataset.tmv; renderTreemap(calc()); }
   else if (b.dataset.mrange) { monthlyRange = b.dataset.mrange; renderMonthly(); }
   else if (b.dataset.ana) { anaView = b.dataset.ana; store.set('anaView', anaView); renderAnalysis(); }
   else if (b.dataset.anaall) { anaShowAll = !anaShowAll; renderAnalysis(); }
