@@ -1194,27 +1194,34 @@ function renderTreemap(c) {
   const box = el('treemapBox'); if (!box || box.clientWidth === 0) return;
   document.querySelectorAll('[data-tmv]').forEach(b => b.classList.toggle('on', b.dataset.tmv === tmView));
   const { stocks, other, pending } = stockExposure(c), eq = c.totalUSD;
-  let items = stocks.filter(g => g.total > 0).map(g => ({ key: g.key, name: g.name, v: g.total, via: g.via, link: true }));
-  if (tmView === 'all') {
-    items.push(...other.filter(g => g.total > 0).map(g => ({ key: g.key, name: g.name, v: g.total, via: g.via, gray: true })));
-    if (c.cashUSD > 1) items.push({ key: 'USD', name: '現金', v: c.cashUSD, via: {}, gray: true });
-  }
+  // 方塊：每家公司一塊；零碎的（比較小的公司、ETF 前 50 名以外）合成「其他公司」；含現金時 BOXX 和現金合成「現金與短債」
+  let items = stocks.filter(g => g.total > 0).map(g => ({ key: g.key, name: g.name, v: g.total, link: true }));
   items.sort((a, b) => b.v - a.v);
-  if (!items.length) { box.innerHTML = UI.empty(pending ? '正在抓 ETF 成分股…' : '目前沒有持股'); return; }
-  // 太小的合併成「其他 N 家」，方塊才看得清楚
-  const base = items.reduce((a, n) => a + n.v, 0), keep = items.filter((n, i) => i < 40 && n.v / base > 0.004), rest = items.filter(n => !keep.includes(n));
-  if (rest.length) keep.push({ key: `其他 ${rest.length} 家`, name: '', v: rest.reduce((a, n) => a + n.v, 0), via: {}, gray: true, many: true });
+  const all = tmView === 'all';
+  let restV = all ? other.filter(g => g.key === 'REST').reduce((a, g) => a + g.total, 0) : 0;
+  const sum0 = items.reduce((a, n) => a + n.v, 0) + restV;
+  const keep = items.filter((n, i) => i < 40 && n.v / sum0 > 0.004);
+  restV += items.filter(n => !keep.includes(n)).reduce((a, n) => a + n.v, 0);
+  if (restV > 0) keep.push({ key: '其他公司', v: restV, gray: true });
+  if (all) {
+    for (const g of other.filter(g => g.total > 0 && !['REST', 'CASH'].includes(g.key))) keep.push({ key: grpName(g.key), v: g.total, gray: true });   // 黃金、比特幣這類
+    const cash = other.filter(g => g.key === 'CASH').reduce((a, g) => a + g.total, 0) + Math.max(c.cashUSD, 0);
+    if (cash > 1) keep.push({ key: '現金與短債', v: cash, gray: true });
+  }
+  keep.sort((a, b) => b.v - a.v);
+  if (!keep.length) { box.innerHTML = UI.empty(pending ? '正在抓 ETF 成分股…' : '目前沒有持股'); return; }
+  const base = keep.reduce((a, n) => a + n.v, 0);
   const W = box.clientWidth, H = box.clientHeight;
   const tiles = squarify(keep, { x: 0, y: 0, w: W, h: H });
   const stockMax = Math.max(...keep.filter(n => !n.gray).map(n => n.v), 1);
   box.innerHTML = tiles.map((t, i) => {
-    const share = t.v / base, big = t.w > 64 && t.h > 38, mid = t.w > 38 && t.h > 22;
+    const big = t.w > 64 && t.h > 38, mid = t.w > 38 && t.h > 22;
     const color = t.gray ? 'var(--surface-2)' : `color-mix(in srgb, var(--accent) ${Math.round(28 + 62 * Math.sqrt(t.v / stockMax))}%, var(--surface))`;
     const fg = t.gray ? 'var(--text-2)' : t.v / stockMax > 0.35 ? '#fff' : 'var(--text)';
     const tag = t.link ? 'a' : 'div';
     return `<${tag} class="tm-tile" data-ti="${i}" ${t.link ? `href="/symbol?s=${encodeURIComponent(t.key)}"` : ''}
       style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${color};color:${fg}">
-      ${mid ? `<b style="font-size:${big ? Math.min(20, 11 + Math.sqrt(t.w * t.h) / 18) : 11}px">${esc(t.key)}</b>` : ''}${big ? `<span>${pctPlain(share, 1)}</span>` : ''}</${tag}>`;
+      ${mid ? `<b style="font-size:${big ? Math.min(20, 11 + Math.sqrt(t.w * t.h) / 18) : 11}px">${esc(t.key)}</b>` : ''}${big ? `<span>${pctPlain(t.v / base, 1)}</span>` : ''}</${tag}>`;
   }).join('') + '<div class="chart-tip" hidden></div>';
   const tip = box.querySelector('.chart-tip');
   box.querySelectorAll('.tm-tile').forEach(n => {
@@ -1222,13 +1229,12 @@ function renderTreemap(c) {
       const t = tiles[+n.dataset.ti], r = box.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
       tip.hidden = false; tip.style.left = px + 'px'; tip.style.top = py + 'px';
       tip.style.transform = `translate(${px > W / 2 ? 'calc(-100% - 14px)' : '14px'}, ${py > H / 2 ? 'calc(-100% - 8px)' : '8px'})`;
-      const via = Object.entries(t.via || {}).sort((a, b) => b[1] - a[1]).slice(0, 4);
-      tip.innerHTML = `<b>${esc(t.key)}</b>${t.name ? ` ${esc(t.name)}` : ''}<br>${usd0(t.v)}・${tmView === 'all' ? '' : '股票部位的 '}${pctPlain(t.v / base, 1)}・淨資產的 ${pctPlain(t.v / eq, 1)}`
-        + (via.length ? '<br>' + via.map(([k, v]) => `${esc(k)} ${usd0(v)}`).join('・') : '');
+      // 兩行就好：名稱、金額和佔比
+      tip.innerHTML = `<b>${esc(t.key)}</b>${t.name ? ` ${esc(t.name)}` : ''}<br>${usd0(t.v)}・${pctPlain(t.v / base, 1)}`;
     });
     n.addEventListener('pointerleave', () => { tip.hidden = true; });
   });
-  el('treemapNote').innerHTML = tmView === 'all' ? `合計 <span class="money">${usd0(base)}</span>（淨資產）` : `個股曝險合計 <span class="money">${usd0(base)}</span>・淨資產的 <span class="money">${pctPlain(base / eq)}</span>`;
+  el('treemapNote').innerHTML = all ? `佔淨資產 <span class="money">${usd0(base)}</span>` : `股票部位 <span class="money">${usd0(base)}</span>・淨資產的 <span class="money">${pctPlain(base / eq)}</span>`;
 }
 
 // ============ 年度總結：每年一列 ============
