@@ -443,7 +443,7 @@ function renderTx() {
   $('#txBody').innerHTML = shown.length ? shown.map(t => {
     let content = '', amount = '';
     switch (t.type) {
-      case 'buy': content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ <span class="x-money">${fmt(t.price)}</span>`; amount = t.fromCash ? `<span class="muted">${fmt(-t.total, 'USD')}</span>` : `<span class="muted">${fmt(t.total)}</span>`; break;
+      case 'buy': content = t.split ? `<b>${esc(t.symbol)}</b> 股票分割，多 ${fmtShares(t.shares)} 股` : `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ <span class="x-money">${fmt(t.price)}</span>`; amount = t.fromCash ? `<span class="muted">${fmt(-t.total, 'USD')}</span>` : `<span class="muted">${fmt(t.total)}</span>`; break;
       case 'sell': { const r = st.perSell[t.id]; content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ <span class="x-money">${fmt(t.price)}</span>`; amount = fmt(t.total, 'USD', { sign: true }) + (r != null ? `<br><span style="font-size:12px" class="${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>` : ''); break; }
       case 'income': content = (t.category === '帳外獲利' ? '帳外獲利 <span class="muted" style="font-size:12px">（計入獲利，不算入金）</span>' : esc(t.category || '收入'))
           + (/^(入金|帳外獲利)/.test(t.category || '')
@@ -821,7 +821,9 @@ function buildImport(trades, positions) {
   const fresh = trades.filter(r => { if (existing.has(r.key)) { plan.dup++; return false; } return true; });
 
   // 先找出手動記過的同一筆交易（同代號、同方向、同股數、日期差 3 天內）：改用券商的精確數字取代
-  const isStock = r => (/^(買進|賣出)/.test(r.kind) || r.kind === '其他') && r.sym && r.qty && !OPT_RE.test(r.sym);
+  // 帳戶類別之間的移轉（現金帳戶 ↔ 融資帳戶，TFR TO/FROM TYPE）每檔一進一出、金額 0，不是買賣
+  const isXfer = r => r.kind === '其他' && /TFR (TO|FROM) TYPE/i.test(r.desc);
+  const isStock = r => (/^(買進|賣出)/.test(r.kind) || r.kind === '其他') && r.sym && r.qty && !OPT_RE.test(r.sym) && !isXfer(r);
   const manual = data.transactions.filter(t => !t.key && !t.imported && (t.type === 'buy' || t.type === 'sell'));
   const matchOf = new Map();
   for (const r of fresh.filter(isStock)) {
@@ -844,6 +846,7 @@ function buildImport(trades, positions) {
   const ordered = [...fresh].sort((a, b) => a.date.localeCompare(b.date) || (b.qty > 0) - (a.qty > 0) || a.i - b.i);
   for (const r of ordered) {
     // 持倉同步日之後的交易才更新持股與現金；之前的只記錄（持股已包含），但被取代的手動紀錄一定要重新套用
+    if (isXfer(r)) { plan.ignored++; continue; }
     const live = r.date > sync || matchOf.has(r.key);
     const isOpt = OPT_RE.test(r.sym);
     const base = { date: r.date, imported: true, key: r.key, note: '券商匯入' };
@@ -852,8 +855,9 @@ function buildImport(trades, positions) {
       const type = r.qty > 0 ? 'buy' : 'sell', shares = Math.abs(r.qty);
       if (type === 'buy') {
         const total = round(-r.amt, 4);
+        const split = /STK SPLIT/i.test(r.desc) && !total;   // 分割多出來的股數，成本 0
         tx = { type, symbol: r.sym, shares, price: r.price || round(total / shares, 4), fee: r.price ? round(total - shares * r.price, 4) : 0, total, fromCash: true, ...base,
-               note: r.kind === '其他' ? '股息再投入' : base.note };
+               note: split ? '股票分割' : r.kind === '其他' ? '股息再投入' : base.note, ...(split ? { split: true } : {}) };
         if (live) {
           eff = { holding: { symbol: r.sym, shares, cost: total }, cash: { USD: r.amt } };
           const h = sim[r.sym] ??= { shares: 0, cost: 0 }; h.shares = round(h.shares + shares); h.cost = round(h.cost + total, 4);
@@ -1102,10 +1106,17 @@ async function rebuildHistory() {
     // 3) 價格：Yahoo 收盤價；查不到的（下市、改名）用自己的成交價代替
     const tradePx = {};
     for (const t of data.transactions) if ((t.type === 'buy' || t.type === 'sell') && t.price) (tradePx[t.symbol] ??= {})[t.date] = t.price;
-    // 分割校正：Yahoo 歷史價已按之後的（反向）分割調整過，跟當時股數對不上；用自己的成交價比對算出倍數
+    // 分割：Yahoo 的歷史價已按分割調整過。券商紀錄裡有分割那一列的，分割前的日子乘回倍數（分割後股數 ÷ 分割前股數）
+    const splitAt = {};
+    for (const t of data.transactions.filter(t => t.split)) {
+      const prev = days.filter(d => d < t.date).at(-1), before = prev ? snap[prev].pos[t.symbol] : null;
+      if (before > 1e-9) (splitAt[t.symbol] ??= []).push({ date: t.date, m: (before + t.shares) / before });
+    }
+    const splitScale = (s, d) => (splitAt[s] || []).reduce((m, x) => d < x.date ? m * x.m : m, 1);
+    // 其他分割校正（券商紀錄裡沒有分割那一列的）：用自己的成交價比對 Yahoo 收盤價算出倍數
     const scale = {};
     for (const [s, tp] of Object.entries(tradePx)) {
-      if (!px[s] || px[s].error) continue;
+      if (!px[s] || px[s].error || splitAt[s]) continue;
       const ratios = Object.entries(tp).map(([d, p]) => { const c = px[s][d]; return c ? p / c : null; }).filter(Boolean).sort((a, b) => a - b);
       if (!ratios.length) continue;
       const med = ratios[Math.floor(ratios.length / 2)];
@@ -1113,7 +1124,7 @@ async function rebuildHistory() {
     }
     const priceOf = (s, d) => {
       const c = px[s] && !px[s].error ? lastOnOrBefore(px[s], d) : null;
-      if (c != null) return c * (scale[s] || 1);
+      if (c != null) return c * (scale[s] || splitScale(s, d));
       const tp = tradePx[s];
       if (!tp) return quotes[s]?.price ?? 0;
       return lastOnOrBefore(tp, d) ?? tp[Object.keys(tp).sort()[0]];
@@ -1191,7 +1202,6 @@ const FORMS = {
     if (plan.dup) li.push(`已匯入過的 ${plan.dup} 筆：略過`);
     if (plan.replaced.length) li.push(`券商改寫過的舊紀錄 ${plan.replaced.length} 筆（改了日期、類別，或把多筆成交合併），以新檔案為準<br><span class="muted">${
       plan.replaced.slice(0, 6).map(t => `${t.date} ${t.type === 'option' ? optName(t.symbol) : t.symbol} ${TX_LABEL[t.type]} ${t.type === 'option' ? fmtShares(Math.abs(t.qty)) + ' 口' : fmtShares(t.shares) + ' 股'}`).join('<br>')}${plan.replaced.length > 6 ? '<br>…' : ''}</span>`);
-    if (plan.ignored) li.push(`<span class="muted">另有 ${plan.ignored} 筆帳戶間轉帳（進出互相抵銷），不需處理</span>`);
     if (plan.manual.length) li.push(`你手動記錄過的 ${plan.manual.length} 筆：視為同一筆，改用券商的精確數字<br><span class="muted">${plan.manual.map(m => `${m.date} ${m.symbol} ${TX_LABEL[m.type]} ${fmtShares(m.shares)} 股`).join('<br>')}</span>`);
     if (plan.skipped.length) li.push(`無法處理 ${plan.skipped.length} 筆：<br><span class="muted">${plan.skipped.slice(0, 5).map(esc).join('<br>')}${plan.skipped.length > 5 ? '<br>…' : ''}</span>`);
     const adj = plan.adjusts.length

@@ -854,6 +854,7 @@ function stockHoldingEvents(st) {
   const out = [];
   for (const t of trades) {
     const L = lots[t.symbol] ??= [];
+    if (t.split) { const held = L.reduce((a, l) => a + l.q, 0); if (held > 1e-9) L.forEach(l => { l.q *= (held + t.shares) / held; }); continue; }   // 分割：原本那幾批股數放大，不是新買
     if (t.type === 'buy') { L.push({ date: t.date, q: t.shares }); continue; }
     let need = t.shares, wd = 0, got = 0;
     while (need > 1e-9 && L.length) {
