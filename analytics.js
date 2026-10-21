@@ -1228,7 +1228,7 @@ function renderTreemap(c) {
     });
     n.addEventListener('pointerleave', () => { tip.hidden = true; });
   });
-  el('treemapNote').textContent = tmView === 'all' ? `合計 ${usd0(base)}（淨資產）` : `個股曝險合計 ${usd0(base)}・淨資產的 ${pctPlain(base / eq)}`;
+  el('treemapNote').innerHTML = tmView === 'all' ? `合計 <span class="money">${usd0(base)}</span>（淨資產）` : `個股曝險合計 <span class="money">${usd0(base)}</span>・淨資產的 <span class="money">${pctPlain(base / eq)}</span>`;
 }
 
 // ============ 年度總結：每年一列 ============
