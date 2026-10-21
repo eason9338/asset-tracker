@@ -195,11 +195,20 @@ function renderProgress(c) {
 // ============ 近期事件：財報、配息、選擇權到期 ============
 const INDEX_GROUPS = new Set(['SOX', 'NDX', 'SPX', 'BTC', 'SILVER', 'GOLD', 'CASH']);
 let eventCache = { at: 0, key: '', data: null, loading: false };
-function eventSymbols(c) {
+const EVENT_MIN = 0.01;   // ETF 拆開後佔淨資產超過這個比例的公司，也追蹤財報
+function lookThrough(c) {
+  // ETF 拆成成分股後，佔淨資產夠大的公司：代號 → { 佔比, 透過哪幾檔 }
+  loadEtfs(etfsFor(heldSyms(c)));
+  const out = {};
+  for (const g of stockExposure(c).stocks) if (g.total / c.totalUSD >= EVENT_MIN) out[g.key] = { pct: g.total / c.totalUSD, via: Object.keys(g.via) };
+  return out;
+}
+function eventSymbols(c, lt) {
   const set = new Set();
   const addSym = s => { set.add(s); const u = UNDERLYING[s]; if (u && !INDEX_GROUPS.has(u)) set.add(u); };
   for (const r of c.rows) addSym(r.sym);
   for (const o of c.optRows) addSym(occ(o.sym).root);
+  for (const k of Object.keys(lt)) set.add(k.replace('.', '-'));   // Yahoo 的代號用「-」（BRK-B）
   return [...set].sort();
 }
 async function loadEvents(syms) {
@@ -213,7 +222,7 @@ async function loadEvents(syms) {
 }
 function renderEvents(c) {
   const box = el('eventsBox'); if (!box) return;
-  const syms = eventSymbols(c);
+  const lt = lookThrough(c), syms = eventSymbols(c, lt);
   if (!syms.length) { box.innerHTML = '<div class="empty">目前沒有持股</div>'; return; }
   if ((eventCache.key !== syms.join(',') || Date.now() - eventCache.at > 3600e3) && !eventCache.loading) loadEvents(syms);
   const tz = d => new Date(d).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' });
@@ -223,14 +232,18 @@ function renderEvents(c) {
     if (sym.startsWith('_') || !e) continue;
     const affected = c.rows.filter(r => grp(r.sym) === grp(sym)).map(r => r.sym)
       .concat(c.optRows.filter(o => grp(occ(o.sym).root) === grp(sym)).map(o => optName(o.sym)));
+    const big = lt[grp(sym.replace('-', '.'))];   // 透過 ETF 持有、佔淨資產夠大
+    const viaEtf = big ? big.via.filter(v => !affected.includes(v)) : [];
+    const sub = [affected.length ? `會影響：${esc(affected.join('、'))}` : '', big ? `佔淨資產 <span class="money">${pctPlain(big.pct, 1)}</span>${viaEtf.length ? (affected.length ? `（含 ${esc(viaEtf.join('、'))} 裡的部分）` : `，透過 ${esc(viaEtf.join('、'))} 持有`) : ''}` : ''].filter(Boolean).join('・');
     if (e.earnings && e.earnings * 1000 > now - 864e5 && e.earnings * 1000 < horizon)
-      ev.push({ t: e.earnings * 1000, kind: '財報', title: `${grpName(grp(sym))} 公布財報${e.earningsEstimate ? '（預估日期）' : ''}`, when: tz(e.earnings * 1000) + '（台灣時間）', sub: affected.length ? `會影響：${affected.join('、')}` : '' });
+      ev.push({ t: e.earnings * 1000, kind: '財報', title: `${esc(grpName(grp(sym.replace('-', '.'))))} 公布財報${e.earningsEstimate ? '（預估日期）' : ''}`, when: tz(e.earnings * 1000) + '（台灣時間）', sub });
+    if (!affected.length) continue;   // 只透過 ETF 持有的公司：股息是發給 ETF，不用提醒除息
     if (e.exDividend && e.exDividend * 1000 > now - 864e5 && e.exDividend * 1000 < horizon)
-      ev.push({ t: e.exDividend * 1000, kind: '除息', title: `${sym} 除息`, when: tz(e.exDividend * 1000), sub: '除息日前一天收盤持有才領得到' });
+      ev.push({ t: e.exDividend * 1000, kind: '除息', title: `${esc(sym)} 除息`, when: tz(e.exDividend * 1000), sub: '除息日前一天收盤持有才領得到' });
   }
   for (const o of c.optRows) {
     const oc = occ(o.sym), t = new Date(oc.exp + 'T20:00:00Z').getTime();
-    ev.push({ t, kind: '到期', title: `${optName(o.sym)} 到期`, when: tz(t) + '（美東收盤）', sub: `${o.qty > 0 ? '買方' : '賣方'} ${Math.abs(o.qty)} 口` });
+    ev.push({ t, kind: '到期', title: `${esc(optName(o.sym))} 到期`, when: tz(t) + '（美東收盤）', sub: `${o.qty > 0 ? '買方' : '賣方'} ${Math.abs(o.qty)} 口` });
   }
   ev.sort((a, b) => a.t - b.t);
   // 同一家公司的不同股別（GOOG、GOOGL）會查到同一場財報，只留一筆
@@ -240,9 +253,9 @@ function renderEvents(c) {
   box.innerHTML = ev.map(e => {
     const d = Math.ceil((e.t - now) / 864e5);
     return `<div class="ev-row"><span class="badge ${e.kind === '財報' ? 'bad' : ''}">${e.kind}</span>
-      <div class="ev-main"><b>${esc(e.title)}</b><span class="sub">${esc(e.when)}${e.sub ? '・' + esc(e.sub) : ''}</span></div>
+      <div class="ev-main"><b>${e.title}</b><span class="sub">${esc(e.when)}${e.sub ? '・' + e.sub : ''}</span></div>
       <div class="ev-days num">${d <= 0 ? '今天' : `還有 ${d} 天`}</div></div>`;
-  }).join('') + '<div class="note">財報與配息日期來自 Yahoo；財報當天股價和選擇權的波動通常最大。</div>';
+  }).join('') + `<div class="note">追蹤你直接持有的標的，以及 ETF 拆開後佔淨資產 ${EVENT_MIN * 100}% 以上的公司。財報與配息日期來自 Yahoo；財報當天股價和選擇權的波動通常最大。</div>`;
 }
 
 // ============ 警示 ============
@@ -432,7 +445,7 @@ async function loadEtfs(syms) {
   todo.forEach(s => etfAsked.add(s));
   try { Object.assign(etfData, await (await fetch('/api/etf-holdings?symbols=' + todo.join(','))).json()); }
   catch { todo.forEach(s => { etfData[s] = { error: '連不上伺服器' }; }); }
-  const c = calc(); renderExposure(c); renderEtfView(c); renderTreemap(c);
+  const c = calc(); renderExposure(c); renderEtfView(c); renderTreemap(c); renderEvents(c);
 }
 function etfSource(sym) {
   // 回傳要拆的 ETF 代號；undefined 代表還在載入，null 代表沒辦法拆
