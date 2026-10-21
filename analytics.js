@@ -757,12 +757,12 @@ function planCells(p) {
   const trigger = p.price && !isOptAct(a) && a !== 'dca' ? `${a === 'sell' ? '漲到' : '跌到'} <span class="money">$${p.price}</span> ${a === 'sell' ? '以上就賣' : '以下就買'}` : '';
   const sub = p.repeat ? (st === 'ready' ? `${REPEAT[p.repeat]}${PLAN_ACTIONS[a] === '定期買進' ? '買進' : ''}` : `${REPEAT[p.repeat]}・下次 ${fmtDay(next)}`) : st === 'waiting' && watch ? planWatchText(watch)
     : trigger || (p.exp ? `${p.exp.slice(5).replace('-', '/')} 到期` : next ? `買進日 ${fmtDay(next)}` : '');
-  // 右邊：每份計畫都有等待期圓點（填滿＝等待期過了），旁邊是藍色的狀態；到價了才用實心標籤
-  const readyStatus = watch ? (watch.opt ? [`${planDots(p)}<span class="pl-left">距履約 ${pct(watch.gap, 1)}</span>`, `現價 <span class="money">${usd(watch.px)}</span>`]
-      : watch.hit ? [`${planDots(p)}<span class="badge solid">✓ 到價了</span>`, `現價 <span class="money">${usd(watch.px)}</span>`]
-      : [`${planDots(p)}<span class="pl-left">還差 ${pctPlain(Math.abs(watch.gap), 1)}</span>`, `現價 <span class="money">${usd(watch.px)}</span>`])
-    : a === 'dca' ? [`${planDots(p)}${next === today() ? '<span class="badge solid">今天買</span>' : `<span class="pl-left">下次 ${next ? next.slice(5).replace('-', '/') : '—'}</span>`}`, '']
-    : [`${planDots(p)}<span class="pl-left">可以下單</span>`, ''];
+  // 右邊（等待期過了）：不再顯示圓點，只留藍色的狀態；到價了用實心標籤
+  const readyStatus = watch ? (watch.opt ? [`<span class="pl-left">距履約 ${pct(watch.gap, 1)}</span>`, `現價 <span class="money">${usd(watch.px)}</span>`]
+      : watch.hit ? [`<span class="badge solid">✓ 到價了</span>`, `現價 <span class="money">${usd(watch.px)}</span>`]
+      : [`<span class="pl-left">還差 ${pctPlain(Math.abs(watch.gap), 1)}</span>`, `現價 <span class="money">${usd(watch.px)}</span>`])
+    : a === 'dca' ? [`${next === today() ? '<span class="badge solid">今天買</span>' : `<span class="pl-left">下次 ${next ? next.slice(5).replace('-', '/') : '—'}</span>`}`, '']
+    : [`<span class="pl-left">可以下單</span>`, ''];
   const status = {
     ready: readyStatus,
     waiting: [`${planDots(p)}<span class="pl-left">${left} 天後</span>`, `${fmtDay(exec)} 起`],
