@@ -1170,6 +1170,22 @@ function renderHoldScatter() {
 
 // ============ 持倉配置方塊圖：ETF 拆成成分股後，每家公司佔多少 ============
 let tmView = 'stock';
+// 產業類別：用 Yahoo 的產業分成幾大類，方塊依類別上色
+const SECTORS = [['semi', '半導體'], ['tech', '科技與網路'], ['consumer', '消費'], ['fin', '金融'], ['health', '醫療'], ['ind', '工業與能源'], ['other', '其他']];
+const sectorData = {}, sectorAsked = new Set();
+function sectorOf(sym) {
+  const d = sectorData[sym]; if (!d) return null;
+  if (/semiconductor/i.test(d.industry)) return 'semi';
+  return { Technology: 'tech', 'Communication Services': 'tech', 'Consumer Cyclical': 'consumer', 'Consumer Defensive': 'consumer',
+           'Financial Services': 'fin', Healthcare: 'health', Industrials: 'ind', Energy: 'ind', 'Basic Materials': 'ind',
+           Utilities: 'ind', 'Real Estate': 'ind' }[d.sector] || 'other';
+}
+async function loadSectors(syms) {
+  const todo = syms.filter(s => !sectorAsked.has(s)); if (!todo.length) return;
+  todo.forEach(s => sectorAsked.add(s));
+  try { Object.assign(sectorData, await (await fetch('/api/sectors?symbols=' + encodeURIComponent(todo.join(',')))).json()); } catch { /* 抓不到就先用預設色 */ }
+  renderTreemap(calc());
+}
 function squarify(items, rect) {
   // 經典 squarified treemap：一列一列放，讓每塊盡量接近正方形
   const total = items.reduce((a, n) => a + n.v, 0), k = rect.w * rect.h / total, out = [];
@@ -1211,13 +1227,17 @@ function renderTreemap(c) {
   keep.sort((a, b) => b.v - a.v);
   if (!keep.length) { box.innerHTML = UI.empty(pending ? '正在抓 ETF 成分股…' : '目前沒有持股'); return; }
   const base = keep.reduce((a, n) => a + n.v, 0);
+  loadSectors(keep.filter(n => n.link).map(n => n.key));
+  for (const n of keep) if (n.link) n.cat = sectorOf(n.key);
   const W = box.clientWidth, H = box.clientHeight;
   const tiles = squarify(keep, { x: 0, y: 0, w: W, h: H });
   const stockMax = Math.max(...keep.filter(n => !n.gray).map(n => n.v), 1);
   box.innerHTML = tiles.map((t, i) => {
     const big = t.w > 64 && t.h > 38, mid = t.w > 38 && t.h > 22;
-    const color = t.gray ? 'var(--surface-2)' : `color-mix(in srgb, var(--accent) ${Math.round(28 + 62 * Math.sqrt(t.v / stockMax))}%, var(--surface))`;
-    const fg = t.gray ? 'var(--text-2)' : t.v / stockMax > 0.35 ? '#fff' : 'var(--text)';
+    // 同一類同一個顏色，方塊越大顏色越深
+    const mix = Math.round(38 + 50 * Math.sqrt(t.v / stockMax));
+    const color = t.gray ? 'var(--surface-2)' : `color-mix(in srgb, var(--c-${t.cat || 'tech'}) ${mix}%, var(--surface))`;
+    const fg = t.gray ? 'var(--text-2)' : mix > 62 ? '#fff' : 'var(--text)';
     const tag = t.link ? 'a' : 'div';
     return `<${tag} class="tm-tile" data-ti="${i}" ${t.link ? `href="/symbol?s=${encodeURIComponent(t.key)}"` : ''}
       style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${color};color:${fg}">
@@ -1230,10 +1250,15 @@ function renderTreemap(c) {
       tip.hidden = false; tip.style.left = px + 'px'; tip.style.top = py + 'px';
       tip.style.transform = `translate(${px > W / 2 ? 'calc(-100% - 14px)' : '14px'}, ${py > H / 2 ? 'calc(-100% - 8px)' : '8px'})`;
       // 兩行就好：名稱、金額和佔比
-      tip.innerHTML = `<b>${esc(t.key)}</b>${t.name ? ` ${esc(t.name)}` : ''}<br>${usd0(t.v)}・${pctPlain(t.v / base, 1)}`;
+      const cat = SECTORS.find(([k]) => k === t.cat)?.[1];
+      tip.innerHTML = `<b>${esc(t.key)}</b>${t.name ? ` ${esc(t.name)}` : ''}<br>${cat ? cat + '・' : ''}${usd0(t.v)}・${pctPlain(t.v / base, 1)}`;
     });
     n.addEventListener('pointerleave', () => { tip.hidden = true; });
   });
+  // 圖例：每一類合計佔多少
+  const byCat = {};
+  for (const n of keep) if (n.link) byCat[n.cat || 'other'] = (byCat[n.cat || 'other'] || 0) + n.v;
+  el('treemapLegend').innerHTML = SECTORS.filter(([k]) => byCat[k]).map(([k, t]) => `<span class="legend-item"><span class="dot" style="background:var(--c-${k})"></span>${t} <b class="num">${pctPlain(byCat[k] / base, 1)}</b></span>`).join('');
   el('treemapNote').innerHTML = all ? `佔淨資產 <span class="money">${usd0(base)}</span>` : `股票部位 <span class="money">${usd0(base)}</span>・淨資產的 <span class="money">${pctPlain(base / eq)}</span>`;
 }
 

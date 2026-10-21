@@ -456,6 +456,62 @@ def fetch_etf_holdings(symbols):
     return out
 
 
+# ---------- 公司的產業類別（Yahoo assetProfile，一個月更新一次） ----------
+SECTOR_TTL = 30 * 86400
+SECTOR_FILE = os.path.join(CACHE_DIR, "sectors.json")
+_sector_lock = threading.Lock()
+try:
+    with open(SECTOR_FILE, encoding="utf-8") as f:
+        _sector_cache = json.load(f)   # symbol -> {"ts":..., "sector":..., "industry":...}
+except (OSError, ValueError):
+    _sector_cache = {}
+
+
+def _sector_one(sym):
+    with _crumb_lock:
+        if not _crumb["value"]:
+            _refresh_crumb()
+        crumb = _crumb["value"]
+    url = (f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{urllib.parse.quote(sym.replace('.', '-'))}"
+           f"?modules=assetProfile&crumb={urllib.parse.quote(crumb)}")
+    p = json.loads(_yget(url))["quoteSummary"]["result"][0].get("assetProfile") or {}
+    return {"sector": p.get("sector") or "", "industry": p.get("industry") or ""}
+
+
+def fetch_sectors(symbols):
+    now, out, todo = time.time(), {}, []
+    for s in symbols:
+        hit = _sector_cache.get(s)
+        if hit and now - hit["ts"] < SECTOR_TTL:
+            out[s] = {"sector": hit["sector"], "industry": hit["industry"]}
+        else:
+            todo.append(s)
+    if todo:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def one(s):
+            try:
+                return s, _sector_one(s)
+            except Exception:  # noqa: BLE001  抓不到就當「其他」，下次再試
+                return s, None
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            results = list(ex.map(one, todo))
+        with _sector_lock:
+            for s, d in results:
+                if d is None:
+                    continue
+                _sector_cache[s] = {"ts": now, **d}
+                out[s] = d
+            try:
+                os.makedirs(CACHE_DIR, exist_ok=True)
+                with open(SECTOR_FILE + ".tmp", "w", encoding="utf-8") as f:
+                    json.dump(_sector_cache, f, ensure_ascii=False)
+                os.replace(SECTOR_FILE + ".tmp", SECTOR_FILE)
+            except OSError:
+                pass
+    return out
+
+
 _hist_cache = {}  # (symbol, from) -> (timestamp, {date: close})
 
 
@@ -571,6 +627,10 @@ class Handler(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(u.query).get("symbols", [""])[0]
             symbols = [s.strip().upper() for s in q.split(",") if re.fullmatch(r"[A-Za-z.\-]{1,10}", s.strip())][:12]
             return self._send(200, fetch_etf_holdings(symbols) if symbols else {})
+        if u.path == "/api/sectors":
+            q = urllib.parse.parse_qs(u.query).get("symbols", [""])[0]
+            symbols = [s.strip().upper() for s in q.split(",") if re.fullmatch(r"[A-Za-z.\-]{1,10}", s.strip())][:120]
+            return self._send(200, fetch_sectors(symbols) if symbols else {})
         if u.path == "/api/history":
             qs = urllib.parse.parse_qs(u.query)
             symbols = [x.strip().upper() for x in qs.get("symbols", [""])[0].split(",") if x.strip()][:120]

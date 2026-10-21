@@ -23,6 +23,8 @@
   --danger: #d23c3b;   /* 警示、刪除：固定紅色，不跟著漲跌配色變 */
   /* 比較圖的系列色（固定順序：組合、S&P 500、Nasdaq 100、短期美債） */
   --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  /* 產業類別色（持倉配置方塊圖） */
+  --c-semi: #7b5bd6; --c-tech: #2a78d6; --c-consumer: #e0892b; --c-fin: #138a9a; --c-health: #d1557a; --c-ind: #9a7b3f; --c-other: #8a8983;
   /* 圓角、間距、字級 */
   --r-sm: 6px; --r: 8px; --r-md: 10px; --r-lg: 12px;
   --gap: 16px; --gap-sm: 10px;
@@ -38,6 +40,7 @@
     --accent: #3987e5; --accent-soft: rgba(57,135,229,.18);
     --up: #f06a69; --down: #3fbf6f; --danger: #f06a69;
     --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --c-semi: #9479e8; --c-tech: #3987e5; --c-consumer: #e59a45; --c-fin: #22a5b5; --c-health: #e2708f; --c-ind: #b8924c; --c-other: #8d8c85;
     --shadow: 0 10px 30px rgba(0,0,0,.5);
   }
   :root.us-colors { --up: #3fbf6f; --down: #f06a69; }
@@ -509,4 +512,5 @@ a.sym-link:hover { color: var(--accent); text-decoration: underline; }
 .tm-tile b { font-weight: 650; white-space: nowrap; }
 .tm-tile span { font-size: var(--fs-sm); opacity: .85; font-variant-numeric: tabular-nums; }
 .legend:empty { display: none; }
+.tm-legend { margin: 12px 0 0; }
 
