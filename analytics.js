@@ -1182,7 +1182,7 @@ function renderHoldScatter() {
 }
 
 // ============ 持倉配置方塊圖：ETF 拆成成分股後，每家公司佔多少 ============
-let tmView = 'stock';
+let tmView = 'stock', tmLayout = 'sector';   // 只看股票／含現金；依產業分區／依大小排
 // 產業類別：用 Yahoo 的產業分成幾大類，方塊依類別上色
 const SECTORS = [['semi', '半導體'], ['tech', '科技與網路'], ['consumer', '消費'], ['fin', '金融'], ['health', '醫療'], ['ind', '工業與能源'], ['other', '其他']];
 const sectorData = {}, sectorAsked = new Set();
@@ -1249,8 +1249,12 @@ function renderTreemap(c) {
     (groups[cat] ??= { key: SECTORS.find(([k]) => k === cat)[1], cat, v: 0, kids: [] }).kids.push({ ...n, catName: SECTORS.find(([k]) => k === cat)[1] });
     groups[cat].v += n.v;
   }
-  const top = [...Object.values(groups), ...keep.filter(n => !n.link)].sort((a, b) => b.v - a.v);
+  document.querySelectorAll('[data-tml]').forEach(b => b.classList.toggle('on', b.dataset.tml === tmLayout));
+  // 依大小：不分區，全部照部位大小排；依產業：先分區
+  const top = tmLayout === 'size' ? keep.map(n => ({ ...n, catName: n.link ? SECTORS.find(([k]) => k === (sectorOf(n.key) || 'other'))[1] : '' }))
+    : [...Object.values(groups), ...keep.filter(n => !n.link)].sort((a, b) => b.v - a.v);
   const W = box.clientWidth, H = box.clientHeight, HEAD = 20, flat = [];
+  const vMax = Math.max(...keep.filter(n => n.link).map(n => n.v), 1);
   let html = '';
   for (const g of squarify(top, { x: 0, y: 0, w: W, h: H })) {
     if (!g.kids) { flat.push(g); html += tile(g, flat.length - 1, g.x, g.y, g.w, g.h); continue; }
@@ -1261,8 +1265,11 @@ function renderTreemap(c) {
   }
   function tile(t, i, x, y, w, h) {
     const big = w > 64 && h > 38, mid = w > 38 && h > 22, tag = t.link ? 'a' : 'div';
-    return `<${tag} class="tm-tile${t.link ? '' : ' gray'}" data-ti="${i}" ${t.link ? `href="/symbol?s=${encodeURIComponent(t.key)}"` : ''}
-      style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">
+    // 部位越大顏色越深（同一個藍色）
+    const mix = Math.round(14 + 66 * Math.sqrt(t.v / vMax));
+    const style = t.link ? `background:color-mix(in srgb, var(--accent) ${mix}%, var(--surface));color:${mix > 55 ? '#fff' : 'var(--text)'}` : '';
+    return `<${tag} class="tm-tile${t.link ? '' : ' gray'}${t.link && mix > 55 ? ' dark' : ''}" data-ti="${i}" ${t.link ? `href="/symbol?s=${encodeURIComponent(t.key)}"` : ''}
+      style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;${style}">
       ${mid ? `<b style="font-size:${big ? Math.min(20, 11 + Math.sqrt(w * h) / 18) : 11}px">${esc(t.key)}</b>` : ''}${big ? `<span>${pctPlain(t.v / base, 1)}</span>` : ''}</${tag}>`;
   }
   box.innerHTML = html + '<div class="chart-tip" hidden></div>';
@@ -1513,6 +1520,7 @@ document.addEventListener('click', e => {
   else if (b.dataset.symMore) { symLimit += 100; renderSymbolPage(calc()); }
   else if (b.dataset.sc) { scView = b.dataset.sc; renderHoldScatter(); }
   else if (b.dataset.tmv) { tmView = b.dataset.tmv; renderTreemap(calc()); }
+  else if (b.dataset.tml) { tmLayout = b.dataset.tml; renderTreemap(calc()); }
   else if (b.dataset.mrange) { monthlyRange = b.dataset.mrange; renderMonthly(); }
   else if (b.dataset.ana) { anaView = b.dataset.ana; store.set('anaView', anaView); renderAnalysis(); }
   else if (b.dataset.anaall) { anaShowAll = !anaShowAll; renderAnalysis(); }
