@@ -100,7 +100,9 @@ function save() {
 async function refreshQuotes() {
   const optSyms = realizedStats().openPos.map(o => o.symbol);
   const roots = optSyms.map(s => occ(s)?.root).filter(Boolean);   // 標的股價：算 delta 用
-  const syms = [...new Set([...Object.keys(data.holdings), ...roots])];
+  // 進行中的交易計畫也要報價（監控有沒有到價），包括還沒持有的標的
+  const planSyms = (data.plans || []).filter(p => p.status === 'active' && p.sym).map(p => p.sym.toUpperCase());
+  const syms = [...new Set([...Object.keys(data.holdings), ...roots, ...planSyms])];
   const btn = $('#refreshBtn');
   btn.innerHTML = '<span class="spin">↻</span> 更新中';
   try {

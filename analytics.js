@@ -277,6 +277,8 @@ function computeAlerts(c) {
   for (const p of (data.plans || []).filter(p => p.created && ['waiting', 'ready'].includes(planState(p)))) {
     const name = `${esc(planLabel(p))} ${esc(p.sym)}`;
     if (planExec(p) === today()) out.push({ lvl: 'calm', tag: '計畫', msg: `「${name}」的計畫今天起可以執行了：條件還成立就照計畫做，不成立就作廢。` });
+    const w = planState(p) === 'ready' ? planWatch(p) : null;
+    if (w?.hit) out.push({ lvl: 'calm', tag: '計畫', msg: `${esc(p.sym)} 到價了：現價 <b>${usd(w.px)}</b>，計畫價 <b>${usd(p.price)}</b>。條件還成立就照計畫${actOf(p) === 'sell' ? '賣出' : '買進'}。` });
     if (planNextDate(p) === today() && planState(p) === 'ready') out.push({ lvl: 'calm', tag: '計畫', msg: `今天是「${name}」計畫裡的買進日${p.qty ? `（${p.qty} 股）` : ''}，照計畫買就好。` });
   }
   // 我的守則
@@ -735,12 +737,23 @@ const planDots = p => {
   const wait = p.wait ?? RULES.wait, left = planState(p) === 'waiting' ? tradingDaysBetween(today(), planExec(p)) : 0;
   return `<span class="pl-dots" title="還要 ${left} 個交易日">${Array.from({ length: wait }, (_, i) => `<i class="${i < wait - left ? 'on' : ''}"></i>`).join('')}</span>`;
 };
+function planWatch(p) {
+  const a = actOf(p), px = quotes[p.sym]?.price;
+  if (a === 'dca' || !p.price || px == null) return null;
+  if (isOptAct(a)) return { px, opt: true, gap: px / p.price - 1 };
+  const hit = a === 'sell' ? px >= p.price : px <= p.price;
+  return { px, hit, gap: a === 'sell' ? p.price / px - 1 : px / p.price - 1 };
+}
+const planWatchText = w => !w ? '' : w.opt ? `現價 <span class="money">${usd(w.px)}</span>・距履約價 <span class="money">${pct(w.gap, 1)}</span>`
+  : w.hit ? `<span class="pl-hit">✓ 到價了</span>・現價 <span class="money">${usd(w.px)}</span>`
+  : `現價 <span class="money">${usd(w.px)}</span>・還差 <span class="money">${pctPlain(Math.abs(w.gap), 1)}</span>`;
 function planCells(p) {
   // 每一列固定三欄：標的／動作、數量／價格、狀態
   const st = planState(p), exec = planExec(p), next = planNextDate(p), a = actOf(p);
   const left = st === 'waiting' ? tradingDaysBetween(today(), exec) : 0;
   const unit = isOptAct(a) ? '口' : '股';
-  const sub = p.repeat ? `${REPEAT[p.repeat]}・下次 ${fmtDay(next)}` : next ? `買進日 ${fmtDay(next)}` : p.exp ? `${p.exp.slice(5).replace('-', '/')} 到期` : '';
+  const watch = ['waiting', 'ready'].includes(st) ? planWatch(p) : null;
+  const sub = p.repeat ? `${REPEAT[p.repeat]}・下次 ${fmtDay(next)}` : watch ? planWatchText(watch) : next ? `買進日 ${fmtDay(next)}` : p.exp ? `${p.exp.slice(5).replace('-', '/')} 到期` : '';
   const status = {
     ready: [`<span class="badge solid">${next === today() ? '今天買' : '可以執行'}</span>`, ''],
     waiting: [`${planDots(p)}<span class="pl-left">${left} 天後</span>`, `${fmtDay(exec)} 起`],

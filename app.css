@@ -234,6 +234,7 @@ details.more > summary { cursor: pointer; font-size: var(--fs); color: var(--tex
 .pl-item.closed, .pl-item.void { opacity: .75; }
 .pl-st { display: flex; align-items: center; justify-content: flex-end; gap: 8px; height: 21px; }
 .pl-left { font-size: var(--fs-sm); font-weight: 600; color: var(--accent); }
+.pl-hit { color: #1f9d55; font-weight: 600; }   /* 到價了：固定綠色（不跟著漲跌配色變） */
 /* 等待期的圓點 */
 .pl-dots { display: inline-flex; gap: 4px; }
 .pl-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--surface); border: 1.5px solid color-mix(in srgb, var(--accent) 45%, var(--border)); }
