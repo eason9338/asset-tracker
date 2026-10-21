@@ -47,8 +47,8 @@ def render_page(name):
 STATIC_FILES = {
     "app.js": "application/javascript; charset=utf-8",
     "app.css": "text/css; charset=utf-8",
+    "ui.js": "application/javascript; charset=utf-8",
     "analytics.js": "application/javascript; charset=utf-8",
-    "analytics.css": "text/css; charset=utf-8",
     "manifest.webmanifest": "application/manifest+json",
     "icon-180.png": "image/png",
     "icon-512.png": "image/png",

@@ -1,41 +1,41 @@
 <!-- 總覽：今年的進度、持股、近期事件、進行中的計畫、總資產走勢 -->
-<div class="col span-8">
+<div class="col span-8 stretch">
   <div class="card" id="progressCard">
-    <div class="card-head"><h2>今年的進度</h2><span class="muted" style="font-size:12px" id="progressNote"></span></div>
-    <div id="progressBox"></div>
+    <div class="card-head"><h2>今年的進度</h2><span class="card-note" id="progressNote"></span></div>
+    <div class="fill-box" id="progressBox"></div>
   </div>
 </div>
-<div class="col span-4">
-  <div class="grid two">
-    <div class="stat"><div class="k">持倉市值</div><div class="v num" id="stStock">—</div><div class="s num" id="stStockSub"></div></div>
-    <div class="stat"><div class="k">現金（美元）</div><div class="v num" id="stUSD">—</div><div class="s muted num" id="stUSDSub"></div></div>
-    <div class="stat"><div class="k">USD / TWD 匯率</div><div class="v num" id="stFx">—</div><div class="s num" id="stFxSub"></div></div>
-    <div class="stat"><div class="k">槓桿率</div><div class="v num" id="stLev">—</div><div class="s muted num" id="stLevSub"></div></div>
+<div class="col span-4 stretch">
+  <div class="tiles cols-2">
+    <div class="tile outline"><div class="k">持倉市值</div><div class="v num" id="stStock">—</div><div class="s num" id="stStockSub"></div></div>
+    <div class="tile outline"><div class="k">現金（美元）</div><div class="v num" id="stUSD">—</div><div class="s muted num" id="stUSDSub"></div></div>
+    <div class="tile outline"><div class="k">USD / TWD 匯率</div><div class="v num" id="stFx">—</div><div class="s num" id="stFxSub"></div></div>
+    <div class="tile outline"><div class="k">槓桿率</div><div class="v num" id="stLev">—</div><div class="s muted num" id="stLevSub"></div></div>
   </div>
 </div>
 <div class="col span-12">
   <div class="card">
-    <div class="card-head"><h2>持股</h2><span class="muted" style="font-size:12px" id="syncInfo"></span></div>
+    <div class="card-head"><h2>持股</h2><span class="card-note" id="syncInfo"></span></div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>代號</th><th>股數</th><th>均價</th><th>現價</th><th>今日</th><th>市值 (USD)</th><th>佔比</th></tr></thead>
         <tbody id="holdingsBody"></tbody>
       </table>
     </div>
-    <div class="muted" style="font-size:12px;margin-top:8px" id="optNote"></div>
+    <div class="note" id="optNote"></div>
   </div>
 </div>
 <div class="col span-8">
   <div class="card">
     <div class="card-head">
-      <h2>總資產走勢 <span class="muted" style="font-weight:400;font-size:12px" id="chartCurLabel"></span></h2>
-      <span style="display:flex;gap:8px;align-items:center">
+      <h2>總資產走勢 <span class="card-note" id="chartCurLabel"></span></h2>
+      <span class="card-tools">
         <button class="ghost" id="rebuildBtn" title="用全部交易紀錄與歷史收盤價重新計算過去每天的總資產">↻ 重新計算</button>
         <span class="seg" id="rangeSeg"><button data-range="30">1月</button><button data-range="90">3月</button><button data-range="180">6月</button><button data-range="ytd">今年</button><button data-range="365">1年</button><button data-range="0">全部</button></span>
       </span>
     </div>
     <div class="chart-box tall" id="chartBox"></div>
-    <div class="muted" style="font-size:12px;margin-top:8px">過去的走勢由交易紀錄與歷史收盤價推算，匯入券商檔案後會自動重新計算；今天的數字隨股價即時更新。</div>
+    <div class="note">過去的走勢由交易紀錄與歷史收盤價推算，匯入券商檔案後會自動重新計算；今天的數字隨股價即時更新。</div>
   </div>
 </div>
 <div class="col span-4">
@@ -44,7 +44,7 @@
     <div id="planSummary"></div>
   </div>
   <div class="card" id="eventsCard">
-    <div class="card-head"><h2>近期事件</h2><span class="muted" style="font-size:12px">財報、配息、選擇權到期</span></div>
+    <div class="card-head"><h2>近期事件</h2><span class="card-note">財報、配息、選擇權到期</span></div>
     <div id="eventsBox"></div>
   </div>
 </div>

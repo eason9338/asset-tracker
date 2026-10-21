@@ -37,17 +37,13 @@ let txLimit = 30;
 let txYear = 'all';        // 交易紀錄頁：只看某一年（同時套用到已實現損益與勝率表）
 let txMonths = new Set();  // 再細分到那一年的某幾個月（'01'～'12'，空的代表整年）
 let txSearch = '';         // 交易紀錄頁：代號搜尋
+let txPicker = null;       // 交易紀錄頁的期間選擇器
 { // 網址可以直接帶期間，例如 /trades?ym=2025-10 或 /trades?y=2025&m=10,11,12
   const q = new URLSearchParams(location.search), ym = q.get('ym');
   if (ym && /^\d{4}-\d{2}$/.test(ym)) { txYear = ym.slice(0, 4); txMonths = new Set([ym.slice(5)]); }
   else if (/^\d{4}$/.test(q.get('y') || '')) { txYear = q.get('y'); txMonths = new Set((q.get('m') || '').split(',').filter(m => /^\d{1,2}$/.test(m)).map(m => m.padStart(2, '0'))); }
 }
 const syncTxUrl = () => history.replaceState(null, '', location.pathname + (txYear === 'all' ? '' : `?y=${txYear}${txMonths.size ? '&m=' + [...txMonths].sort().map(Number).join(',') : ''}`));
-// 月份清單的文字：連續的寫成「10–12 月」，不連續的寫成「3、10 月」
-const monthsLabel = ms => {
-  const n = [...ms].map(Number).sort((a, b) => a - b);
-  return (n.length > 2 && n.every((v, i) => !i || v === n[i - 1] + 1) ? `${n[0]}–${n.at(-1)}` : n.join('、')) + ' 月';
-};
 
 // 每一頁只放自己的區塊：找不到的元素回傳一個不在畫面上的空 div，寫進去不會出錯，圖表也會因為量不到寬度而略過
 const $ = s => document.querySelector(s) || document.createElement('div');
@@ -235,10 +231,10 @@ function render() {
     hb.innerHTML = c.rows.map(r => {
       const share = r.value != null ? r.value / totalAssetUSD : 0;
       return `<tr>
-        <td><a class="sym sym-link" href="/symbol?s=${encodeURIComponent(window.symGroup?.(r.sym).g || r.sym)}">${esc(r.sym)}</a>${r.lev !== 1 ? `<span class="lev">${r.lev}x</span>` : ''}<span class="sym-name">${esc(r.name || '')}</span></td>
+        <td><a class="sym sym-link" href="/symbol?s=${encodeURIComponent(window.symGroup?.(r.sym).g || r.sym)}">${esc(r.sym)}</a>${r.lev !== 1 ? `<span class="badge xs accent">${r.lev}x</span>` : ''}<span class="sym-name">${esc(r.name || '')}</span></td>
         <td class="num">${fmtShares(r.shares)}</td>
         <td class="num">${fmt(r.avg)}</td>
-        <td class="num">${r.price != null ? fmt(r.price) + (SESSION_TAG[r.session] ? ` <span class="sess">${SESSION_TAG[r.session]}</span><span class="sym-name">收盤 ${fmt(r.regularPrice)}</span>` : '') : '<span class="muted">—</span>'}</td>
+        <td class="num">${r.price != null ? fmt(r.price) + (SESSION_TAG[r.session] ? ` <span class="badge xs">${SESSION_TAG[r.session]}</span><span class="sym-name">收盤 ${fmt(r.regularPrice)}</span>` : '') : '<span class="muted">—</span>'}</td>
         <td class="num ${cls(r.dayPct)}">${fmtPct(r.dayPct)}</td>
         <td class="num">${fmt(r.value)}</td>
         <td class="num"><div class="alloc"><span>${(share * 100).toFixed(1)}%</span><div class="alloc-bar"><i style="width:${Math.min(100, share * 100)}%"></i></div></div></td>
@@ -356,7 +352,7 @@ function renderTxPeriod() {
   const chain = k => parts.some(p => p[k] == null) ? null : parts.reduce((a, p) => a * (1 + p[k]), 1) - 1;
   const me = chain('twr'), q = chain('qqq'), v = chain('voo'), gain = parts.reduce((a, p) => a + p.gain, 0);
   const p = x => x == null ? '—' : fmtPct(x);
-  box.innerHTML = `<div class="tx-period"><span class="tx-period-h">${txYear} 年${txMonths.size ? ' ' + monthsLabel(txMonths) : ''}</span>
+  box.innerHTML = `<div class="statbar"><span class="statbar-title">${txYear} 年${txMonths.size ? ' ' + UI.monthsLabel(txMonths) : ''}</span>
     <span>我的報酬率 <b class="num ${cls(me)}">${p(me)}</b></span><span>Nasdaq 100 <b class="num">${p(q)}</b></span><span>S&amp;P 500 <b class="num">${p(v)}</b></span>
     <span>賺到的錢 <b class="num ${cls(gain)}">${fmt(gain, 'USD', { sign: true, digits: 0 })}</b></span></div>`;
 }
@@ -374,7 +370,7 @@ function yearView(st, y, months) {
     else if (c.startsWith('利息')) interest += v; else if (c.startsWith('帳外獲利')) outside += v;
   }
   const sum = a => a.reduce((s, e) => s + e.r, 0);
-  return { ...st, year: months?.size ? `${y} 年 ${monthsLabel(months)}` : y, stockEvents, optEvents, bySym, stock: sum(stockEvents), sells: stockEvents.length, option: sum(optEvents),
+  return { ...st, year: months?.size ? `${y} 年 ${UI.monthsLabel(months)}` : y, stockEvents, optEvents, bySym, stock: sum(stockEvents), sells: stockEvents.length, option: sum(optEvents),
            closes: optEvents.filter(e => !e.expired).length, expired: optEvents.filter(e => e.expired).length, open: 0, partial: 0,
            div, divN, refund, interest, outside };
 }
@@ -392,7 +388,7 @@ function winStats(events) {
 }
 function winTable(rows) {
   const pct = v => v == null ? '—' : (v * 100).toFixed(0) + '%';
-  return `<div class="table-wrap" style="margin:6px 0 0;padding:0"><table class="win-table"><thead><tr>
+  return `<div class="table-wrap"><table class="table"><thead><tr>
     <th>類別</th><th>筆數</th><th>勝率</th><th>勝／敗</th><th>平均賺</th><th>平均賠</th><th>獲利因子</th><th>合計</th></tr></thead><tbody>
     ${rows.filter(([, w]) => w.n).map(([k, w]) => `<tr><td>${k}</td><td class="num">${w.n}</td><td class="num"><b>${pct(w.rate)}</b></td>
       <td class="num">${w.w}／${w.l}${w.t ? `<span class="muted">（平 ${w.t}）</span>` : ''}</td>
@@ -479,15 +475,14 @@ const TX_LABEL = { buy: '買進', sell: '賣出', income: '收入', expense: '�
 function renderTx() {
   if (!has('#txBody')) return;   // 只有交易紀錄頁才有
   const st = realizedStats();
-  // 年份切換：有交易的年份，新的在前
-  const years = [...new Set(data.transactions.map(t => t.date.slice(0, 4)))].sort().reverse();
-  if (txYear !== 'all' && !years.includes(txYear)) txYear = 'all';
-  $('#txYearSeg').innerHTML = ['all', ...years].map(y => `<button data-ty="${y}" class="${y === txYear ? 'on' : ''}">${y === 'all' ? '全部' : y}</button>`).join('');
-  // 月份：選了年份才出現，可以複選；沒有紀錄的月份不能點
-  const withTx = new Set(data.transactions.filter(t => t.date.startsWith(txYear)).map(t => t.date.slice(5, 7)));
-  $('#txMonthSeg').hidden = txYear === 'all';
-  $('#txMonthSeg').innerHTML = txYear === 'all' ? '' : `<button data-tm="all" class="${txMonths.size ? '' : 'on'}">全年</button>` +
-    Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => `<button data-tm="${m}" class="${txMonths.has(m) ? 'on' : ''}" ${withTx.has(m) ? '' : 'disabled'}>${+m}月</button>`).join('');
+  // 期間選擇器：有紀錄的年份、月份才能選
+  const ym = new Set(data.transactions.map(t => t.date.slice(0, 7)));
+  const years = [...new Set([...ym].map(k => k.slice(0, 4)))].sort().reverse();
+  if (txYear !== 'all' && !years.includes(txYear)) { txYear = 'all'; txMonths = new Set(); }
+  const value = { y: txYear, months: txMonths };
+  if (txPicker) txPicker.update(value);
+  else txPicker = UI.periodPicker($('#txPicker'), { years: () => years, hasMonth: (y, m) => ym.has(`${y}-${m}`), value,
+    onChange: v => { txYear = v.y; txMonths = v.months; txLimit = 30; syncTxUrl(); renderTx(); } });
   renderPnl(yearView(st, txYear, txMonths));
   renderTxPeriod();
   let list = [...data.transactions, ...st.expiries].sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
@@ -508,32 +503,32 @@ function renderTx() {
   $('#txBody').innerHTML = shown.length ? shown.map(t => {
     let content = '', amount = '';
     switch (t.type) {
-      case 'buy': content = t.split ? `<b>${esc(t.symbol)}</b> 股票分割，多 ${fmtShares(t.shares)} 股` : `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ <span class="x-money">${fmt(t.price)}</span>`; amount = t.fromCash ? `<span class="muted">${fmt(-t.total, 'USD')}</span>` : `<span class="muted">${fmt(t.total)}</span>`; break;
-      case 'sell': { const r = st.perSell[t.id]; content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ <span class="x-money">${fmt(t.price)}</span>`; amount = fmt(t.total, 'USD', { sign: true }) + (r != null ? `<br><span style="font-size:12px" class="${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>` : ''); break; }
-      case 'income': content = (t.category === '帳外獲利' ? '帳外獲利 <span class="muted" style="font-size:12px">（計入獲利，不算入金）</span>' : esc(t.category || '收入'))
+      case 'buy': content = t.split ? `<b>${esc(t.symbol)}</b> 股票分割，多 ${fmtShares(t.shares)} 股` : `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ <span class="money">${fmt(t.price)}</span>`; amount = t.fromCash ? `<span class="muted">${fmt(-t.total, 'USD')}</span>` : `<span class="muted">${fmt(t.total)}</span>`; break;
+      case 'sell': { const r = st.perSell[t.id]; content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ <span class="money">${fmt(t.price)}</span>`; amount = fmt(t.total, 'USD', { sign: true }) + (r != null ? `<br><span class="rz ${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>` : ''); break; }
+      case 'income': content = (t.category === '帳外獲利' ? '帳外獲利 <span class="card-note">（計入獲利，不算入金）</span>' : esc(t.category || '收入'))
           + (/^(入金|帳外獲利)/.test(t.category || '')
           ? ` <button class="ghost" style="font-size:11px;padding:1px 6px;color:var(--text-3)" data-reclass="${t.id}" title="${t.category === '帳外獲利' ? '改回入金：這筆是自己存進來的錢' : '如果這筆其實是在別處投資賺到、轉進來的錢，按這裡把它算成獲利'}">${t.category === '帳外獲利' ? '↺ 改回入金' : '↺ 改成帳外獲利'}</button>` : ''); amount = `<span class="up">${fmt(t.amount, t.currency, { sign: true })}</span>`; break;
       case 'expense': content = esc(t.category || '支出'); amount = `<span class="down">${fmt(-t.amount, t.currency, { sign: true })}</span>`; break;
       case 'fx': content = `${fmt(t.fromAmount, t.from)} → ${fmt(t.toAmount, t.to)}`; amount = `<span class="muted">匯率 ${(t.from === 'TWD' ? t.fromAmount / t.toAmount : t.toAmount / t.fromAmount).toFixed(3)}</span>`; break;
-      case 'adjust': content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.before.shares)} → ${fmtShares(t.after.shares)} 股，成本 <span class="x-money">${fmt(t.before.cost)} → ${fmt(t.after.cost)}</span>`; break;
+      case 'adjust': content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.before.shares)} → ${fmtShares(t.after.shares)} 股，成本 <span class="money">${fmt(t.before.cost)} → ${fmt(t.after.cost)}</span>`; break;
       case 'option': {
         const r = st.perOpt[t.id];
         content = esc([t.action ? t.action.toUpperCase() : '', t.qty > 0 ? 'BUY' : t.qty < 0 ? 'SELL' : '', optName(t.symbol, t.desc)].filter(Boolean).join(' '));
         amount = fmt(t.amount, 'USD', { sign: true }) + (t.id in st.perOpt
-          ? (r == null ? '<br><span class="muted" style="font-size:12px">缺開倉成本</span>' : `<br><span style="font-size:12px" class="${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>`)
+          ? (r == null ? '<br><span class="rz muted">缺開倉成本</span>' : `<br><span class="rz ${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>`)
           : '');
         break;
       }
       case 'expire':
         content = esc(`EXPIRE ${optName(t.symbol, t.desc)}`) + ` <span class="muted">${fmtShares(Math.abs(t.qty))} 口</span>`;
-        amount = `<span class="muted">$0.00</span><br><span style="font-size:12px" class="${cls(t.realized)}">已實現 ${fmt(t.realized, 'USD', { sign: true })}</span>`;
+        amount = `<span class="muted">$0.00</span><br><span class="rz ${cls(t.realized)}">已實現 ${fmt(t.realized, 'USD', { sign: true })}</span>`;
         break;
-      case 'cashAdjust': content = `${t.currency} 現金 <span class="x-money">${fmt(t.before, t.currency)} → ${fmt(t.after, t.currency)}</span>`; break;
+      case 'cashAdjust': content = `${t.currency} 現金 <span class="money">${fmt(t.before, t.currency)} → ${fmt(t.after, t.currency)}</span>`; break;
     }
     return `<tr>
       <td class="num">${t.date}</td>
-      <td style="text-align:left"><span class="tx-type">${TX_LABEL[t.type] || t.type}</span></td>
-      <td style="text-align:left">${content}</td>
+      <td class="l"><span class="badge">${TX_LABEL[t.type] || t.type}</span></td>
+      <td class="l">${content}</td>
       <td class="num">${amount}</td>
       <td class="muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(t.note || '')}</td>
     </tr>`;
@@ -1273,7 +1268,7 @@ const FORMS = {
     if (plan.skipped.length) li.push(`無法處理 ${plan.skipped.length} 筆：<br><span class="muted">${plan.skipped.slice(0, 5).map(esc).join('<br>')}${plan.skipped.length > 5 ? '<br>…' : ''}</span>`);
     const adj = plan.adjusts.length
       ? `<div style="font-size:13px;margin-bottom:6px">依持倉檔校正持股：</div>
-         <div class="table-wrap" style="margin:0"><table class="imp-table"><thead><tr><th>代號</th><th>股數</th><th>成本</th></tr></thead><tbody>
+         <div class="table-wrap"><table class="imp-table"><thead><tr><th>代號</th><th>股數</th><th>成本</th></tr></thead><tbody>
          ${plan.adjusts.map(a => `<tr><td>${esc(a.symbol)}</td><td class="num">${fmtShares(a.before.shares)} → ${fmtShares(a.after.shares)}</td><td class="num">${fmt(a.before.cost)} → ${fmt(a.after.cost)}</td></tr>`).join('')}
          </tbody></table></div>`
       : plan.hasPositions ? '<div class="muted" style="font-size:13px;margin-bottom:12px">持倉檔與目前持股一致，不需校正。</div>' : '';
@@ -1314,12 +1309,6 @@ document.addEventListener('click', e => {
   else if (b.dataset.lrange) { levRange = b.dataset.lrange; renderLev(); $$('#levRangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
   else if (b.dataset.crange) { cmpRange = b.dataset.crange; renderCompare(); $$('#cmpRangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
   else if (b.dataset.f) { txFilter = b.dataset.f; txLimit = 30; render(); }
-  else if (b.dataset.ty) { txYear = b.dataset.ty; txMonths = new Set(); txLimit = 30; syncTxUrl(); renderTx(); }
-  else if (b.dataset.tm) {
-    if (b.dataset.tm === 'all') txMonths = new Set();
-    else if (txMonths.has(b.dataset.tm)) txMonths.delete(b.dataset.tm); else txMonths.add(b.dataset.tm);
-    txLimit = 30; syncTxUrl(); renderTx();
-  }
   else if (b.dataset.reclass) {
     // 只改分類（影響報酬率怎麼算），不動金額；重新上傳券商檔案也會保留
     const t = data.transactions.find(x => x.id === b.dataset.reclass);
