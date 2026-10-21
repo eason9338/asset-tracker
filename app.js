@@ -16,9 +16,9 @@ const LEV_DEFAULT = {
 const levOf = s => data.settings.leverage?.[s] ?? LEV_DEFAULT[s] ?? 1;
 const OPT_RE = /^[A-Z.]+\d{6}[CP]\d{8}$/;
 let lastUpdate = null;
-let chartRange = '0';      // 總資產走勢的區間：天數、'ytd' 或 '0'（全部）
-let cmpRange = '0';
-let levRange = '0';        // 槓桿率走勢的區間        // 報酬率比較的區間
+let chartRange = '365';    // 總資產走勢的區間：天數、'ytd' 或 '0'（全部）；預設一年
+let cmpRange = '0';         // 報酬率比較的區間
+let levRange = '365';      // 槓桿率走勢的區間；預設一年
 function rangeCutoff(r) {
   if (r === 'ytd') return new Date().getFullYear() + '-01-01';
   if (!+r) return '';

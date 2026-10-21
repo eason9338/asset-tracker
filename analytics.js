@@ -964,6 +964,7 @@ function renderAnalysis() {
 }
 
 // ============ 每月已實現損益 ============
+let monthlyRange = '12';   // 最近幾個月；'0' 代表全部
 function renderMonthly() {
   const box = el('monthlyBox'); if (!box || box.clientWidth === 0) return;
   const st = realizedStats(), m = {};
@@ -971,8 +972,14 @@ function renderMonthly() {
   for (const e of st.stockEvents) add(e.date, 's', e.r);
   for (const e of st.optEvents) add(e.date, 'o', e.r);
   for (const t of data.transactions) if (t.type === 'income' && t.currency === 'USD' && /^(股息|退稅)/.test(t.category || '')) add(t.date, 'd', t.amount);
-  const months = Object.keys(m).sort();
-  if (!months.length) { box.innerHTML = '<div class="x-empty">還沒有已實現損益</div>'; return; }
+  document.querySelectorAll('#monthlySeg [data-mrange]').forEach(b => b.classList.toggle('on', b.dataset.mrange === monthlyRange));
+  // 區間：從今天往回推 N 個月（含這個月），中間沒有交易的月份也要佔一格，時間軸才不會被壓縮
+  const now = today().slice(0, 7), first = Object.keys(m).sort()[0];
+  if (!first) { box.innerHTML = '<div class="x-empty">還沒有已實現損益</div>'; return; }
+  const addM = (k, n) => { const [y, mo] = k.split('-').map(Number), t = y * 12 + mo - 1 + n; return `${Math.floor(t / 12)}-${String(t % 12 + 1).padStart(2, '0')}`; };
+  const cut = +monthlyRange ? addM(now, 1 - +monthlyRange) : first, from = cut > first ? cut : first;
+  const months = [];
+  for (let k = from; k <= now; k = addM(k, 1)) { months.push(k); m[k] ??= { s: 0, o: 0, d: 0 }; }
   const K = [['s', '股票', 'var(--s1)'], ['o', '選擇權', 'var(--s2)'], ['d', '股息', 'var(--s3)']];
   const W = box.clientWidth, H = box.clientHeight, padL = 52, padR = 8, padT = 10, padB = 22;
   let top = 0, bot = 0;
@@ -980,6 +987,7 @@ function renderMonthly() {
   const span = (top - bot) || 1; top += span * 0.06; bot -= span * 0.06;
   const y = v => padT + (top - v) / (top - bot) * (H - padT - padB);
   const bw = (W - padL - padR) / months.length, barW = Math.max(4, Math.min(36, bw * 0.6));
+  const every = bw < 30 ? Math.ceil(30 / bw) : 1;   // 月份太多時隔幾個才標一次
   let bars = '';
   months.forEach((k, i) => {
     const cx = padL + bw * i + bw / 2, o = m[k];
@@ -990,7 +998,8 @@ function renderMonthly() {
       bars += `<rect x="${cx - barW / 2}" y="${y0}" width="${barW}" height="${Math.max(h - 1, 0.5)}" fill="${col}" rx="2"/>`;
       if (v >= 0) up += v; else dn += v;
     }
-    bars += `<text class="axis-text" x="${cx}" y="${H - 6}" text-anchor="middle">${+k.slice(5)}月</text>`;
+    // 一月和第一格標年份，其他只標月份
+    if (i % every === 0) bars += `<text class="axis-text" x="${cx}" y="${H - 6}" text-anchor="middle">${i === 0 || k.endsWith('-01') ? `${k.slice(2, 4)}/${+k.slice(5)}` : +k.slice(5) + '月'}</text>`;
   });
   const ticks = [bot, 0, top].filter((v, i, a) => a.indexOf(v) === i);
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
@@ -1034,15 +1043,17 @@ function renderFees() {
   const tot = k => months.reduce((s, x) => s + m[x][k], 0);
   const st = realizedStats(), realized = st.stock + st.option;
   const all = tot('stock') + tot('opt') + tot('int');
+  const feeTable = list => `<div class="table-wrap" style="margin:0"><table class="x-table"><thead><tr><th class="l">月份</th><th>股票（筆）</th><th>股票規費</th><th>選擇權（口）</th><th>選擇權手續費</th><th>融資利息</th><th>合計</th></tr></thead>
+      <tbody>${list.map(k => { const o = m[k]; return `<tr><td class="l">${k}</td><td class="num">${o.n}</td><td class="num">${usd(o.stock)}</td><td class="num">${o.c}</td><td class="num">${usd(o.opt)}</td><td class="num">${o.int ? usd(o.int) : '—'}</td><td class="num"><b>${usd(o.stock + o.opt + o.int)}</b></td></tr>`; }).join('')}</tbody></table></div>`;
   box.innerHTML = `<div class="x-grid" style="margin-bottom:12px">
       <div class="x-tile"><div class="k">總交易成本</div><div class="v num">${usd(all)}</div><div class="s">佔已實現損益 <span class="x-money">${realized > 0 ? pctPlain(all / realized, 1) : '—'}</span></div></div>
       <div class="x-tile"><div class="k">股票規費</div><div class="v num">${usd(tot('stock'))}</div><div class="s">${tot('n')} 筆，平均每筆 <span class="x-money">${usd(tot('n') ? tot('stock') / tot('n') : 0)}</span></div></div>
       <div class="x-tile"><div class="k">選擇權手續費</div><div class="v num">${usd(tot('opt'))}</div><div class="s">${tot('c')} 口，平均每口 <span class="x-money">${usd(tot('c') ? tot('opt') / tot('c') : 0)}</span></div></div>
-      <div class="x-tile"><div class="k">融資利息</div><div class="v num">${usd(tot('int'))}</div><div class="s">${tot('int') ? '' : '紀錄中沒有'}</div></div>
+      <div class="x-tile"><div class="k">融資利息</div><div class="v num">${usd(tot('int'))}</div><div class="s">${months.filter(k => m[k].int).length ? `${months.filter(k => m[k].int).length} 個月有被收` : '紀錄中沒有'}</div></div>
     </div>
-    <div class="table-wrap" style="margin:0"><table class="x-table"><thead><tr><th class="l">月份</th><th>股票（筆）</th><th>股票規費</th><th>選擇權（口）</th><th>選擇權手續費</th><th>合計</th></tr></thead>
-      <tbody>${months.slice().reverse().map(k => { const o = m[k]; return `<tr><td class="l">${k}</td><td class="num">${o.n}</td><td class="num">${usd(o.stock)}</td><td class="num">${o.c}</td><td class="num">${usd(o.opt)}</td><td class="num"><b>${usd(o.stock + o.opt + o.int)}</b></td></tr>`; }).join('')}</tbody></table></div>
-    <div class="x-note">成本＝成交金額與實際收付金額的差（券商手續費、SEC／FINRA 規費等），由券商紀錄推算。買賣價差、匯差不在其中。</div>`;
+    ${feeTable(months.slice().reverse().slice(0, 12))}
+    ${months.length > 12 ? `<details class="x-details" style="margin-top:8px"><summary>更早的月份（${months.length - 12}）</summary>${feeTable(months.slice().reverse().slice(12))}</details>` : ''}
+    <div class="x-note">成本＝成交金額與實際收付金額的差（券商手續費、SEC／FINRA 規費等），由券商紀錄推算；融資利息是券商每月收的「融資利息費用」。買賣價差、匯差不在其中。</div>`;
 }
 
 // ============ 對外：每次畫面更新時呼叫 ============
@@ -1112,6 +1123,7 @@ document.addEventListener('click', e => {
   }
   else if (b.dataset.jdel) { if (confirmClick(b, '✕')) { data.journal = (data.journal || []).filter(j => j.id !== b.dataset.jdel); save(); renderJournal(); } }
   else if (b.dataset.x === 'metrics') { metricsRange = b.dataset.v; store.set('metricsRange', metricsRange); renderMetrics(); }
+  else if (b.dataset.mrange) { monthlyRange = b.dataset.mrange; renderMonthly(); }
   else if (b.dataset.ana) { anaView = b.dataset.ana; store.set('anaView', anaView); renderAnalysis(); }
   else if (b.dataset.anaall) { anaShowAll = !anaShowAll; renderAnalysis(); }
   else if (b.dataset.dismiss != null) {
