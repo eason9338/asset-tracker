@@ -162,27 +162,23 @@ function ytdStats(c) {
   const start = hist[0], endDate = today();
   const flows = externalFlows().filter(f => f.date > start.date && f.date <= endDate).reduce((s, f) => s + f.usd, 0);
   const rets = dailyReturns(hist, outsideAsFlow());
-  const st = realizedStats(), y = String(new Date().getFullYear());
-  const realized = st.stockEvents.concat(st.optEvents).filter(e => e.date.startsWith(y)).reduce((s, e) => s + e.r, 0)
-    + data.transactions.filter(t => t.type === 'income' && t.date.startsWith(y) && /^(股息|退稅|利息)/.test(t.category || '')).reduce((s, t) => s + t.amount, 0);
   return { start, flows, gain: c.totalUSD - start.usd - flows, twr: rets.reduce((p, x) => p * (1 + x.r), 1) - 1,
-           qqq: benchRet('QQQ', start.date, endDate), voo: benchRet('VOO', start.date, endDate), realized };
+           qqq: benchRet('QQQ', start.date, endDate), voo: benchRet('VOO', start.date, endDate) };
 }
 function renderProgress(c) {
   const box = el('progressBox'); if (!box) return;
   const y = ytdStats(c);
   if (!y) { box.innerHTML = '<div class="x-empty">今年的資料還不夠</div>'; el('heroCalm').innerHTML = ''; return; }
-  const twd = v => fx ? `≈ ${fmt(v * fx, 'TWD', { sign: true })}` : '';
   el('heroCalm').innerHTML = `<span class="muted">今年累積</span> <b class="num">${usd0(y.gain, { sign: true })}</b> <span class="muted num">（${pct(y.twr)}）</span>`;
   el('progressNote').textContent = `從 ${y.start.date} 收盤起算`;
-  const beat = (b, n) => b == null ? '' : `<div class="x-tile"><div class="k">對 ${n}</div><div class="v num">${pct(y.twr - b)}</div><div class="s">${n} 同期 <span class="x-money">${pct(b)}</span></div></div>`;
-  box.innerHTML = `<div class="x-grid">
-      <div class="x-tile"><div class="k">今年賺到的錢</div><div class="v num">${usd0(y.gain, { sign: true })}</div><div class="s"><span class="num">${twd(y.gain)}</span>・已扣除入金 <span class="num">${usd0(y.flows)}</span></div></div>
-      <div class="x-tile"><div class="k">帳戶報酬率</div><div class="v num">${pct(y.twr)}</div><div class="s">時間加權${outsideAsFlow() ? '，帳外獲利當入金' : ''}</div></div>
-      ${beat(y.qqq, 'Nasdaq 100')}${beat(y.voo, 'S&P 500')}
-      <div class="x-tile"><div class="k">今年已實現</div><div class="v num">${usd0(y.realized, { sign: true })}</div><div class="s">股票＋選擇權＋股息利息，已經落袋的部分</div></div>
-    </div>
-    <div class="x-note">${isCalm() ? '平靜模式開啟中：所有分頁的金額、漲跌和圖表都先收起來。單日的起伏看久了只會累，用整年的成績看自己就好。按「👁 看一下」可以暫時顯示，「◉ 平靜中」可以關掉。' : '想少看一點餘額和每天的漲跌，可以打開右上角的「◎ 平靜」。'}</div>`;
+  // 一排四格：我賺的錢、我的報酬率、兩個指數今年的報酬
+  const tile = (k, v) => `<div class="x-tile"><div class="k">${k}</div><div class="v num">${v}</div></div>`;
+  box.innerHTML = `<div class="x-grid progress-grid">
+      ${tile('今年賺到的錢', usd0(y.gain, { sign: true }))}
+      ${tile('我的報酬率', pct(y.twr))}
+      ${tile('Nasdaq 100', y.qqq == null ? '—' : pct(y.qqq))}
+      ${tile('S&amp;P 500', y.voo == null ? '—' : pct(y.voo))}
+    </div>`;
 }
 
 // ============ 近期事件：財報、配息、選擇權到期 ============

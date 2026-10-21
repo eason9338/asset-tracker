@@ -235,3 +235,7 @@ a.sym-link:hover { color: var(--accent); text-decoration: underline; }
 .legend .dot.hollow { background: var(--surface); border: 1.5px solid var(--text-2); }
 .sym-table td { white-space: nowrap; }
 
+/* ---------- 今年的進度：一排四格 ---------- */
+.progress-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.progress-grid .x-tile .v { font-size: 22px; }
+
