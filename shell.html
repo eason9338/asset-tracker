@@ -2,6 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
+<script>try { const t = localStorage.getItem('asset.theme'); if (t) document.documentElement.dataset.theme = t; } catch {}</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{TITLE}}・我的資產</title>
 <link rel="manifest" href="/manifest.webmanifest">
@@ -56,6 +57,7 @@
             <button class="ghost" id="refreshBtn" title="立即更新股價">↻ 更新</button>
             <button class="ghost" id="peekBtn" title="暫時顯示數字，3 分鐘後自動收起">👁 看一下</button>
             <button class="ghost" id="calmBtn" title="平靜模式：不顯示今天的漲跌，改看今年的累積成績">◎ 平靜</button>
+            <button class="ghost" id="themeBtn" title="切換深色／淺色"></button>
             <button class="ghost" id="privacyBtn" title="隱私模式：模糊所有金額（給別人看螢幕時用）">◐ 隱私</button>
           </div>
           <div class="status">

@@ -137,6 +137,11 @@ function lineChart(box, pts, { fmtY, fmtTip, color = 'var(--accent)', zero = fal
 // ============ 頁面：每個網址是獨立的頁面，只有自己的區塊 ============
 const PAGE = document.body.dataset.page || 'overview';
 
+// ============ 深色模式：手動選的優先，沒選過就跟著系統 ============
+const darkNow = () => document.documentElement.dataset.theme ? document.documentElement.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+function applyTheme() { const b = el('themeBtn'); if (b) b.textContent = darkNow() ? '☼ 淺色' : '☾ 深色'; }
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+
 // ============ 隱私模式 ============
 function applyPrivacy() {
   const on = store.get('privacy', '0') === '1';
@@ -1470,7 +1475,7 @@ function renderSymbolPage(c) {
 window.renderExtras = function renderExtras(c) {
   if (!data) return;
   c = c || calc();
-  applyPrivacy(); applyCalm();
+  applyPrivacy(); applyCalm(); applyTheme();
   try { renderAlertBar(computeAlerts(c)); } catch (err) { console.error('alerts', err); }
   // 每一頁只有自己的區塊；不在這一頁的直接略過
   const parts = [
@@ -1509,6 +1514,10 @@ function lookupEtf() {
 document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.id === 'privacyBtn') { store.set('privacy', store.get('privacy', '0') === '1' ? '0' : '1'); applyPrivacy(); }
+  else if (b.id === 'themeBtn') {
+    const t = darkNow() ? 'light' : 'dark';
+    document.documentElement.dataset.theme = t; store.set('theme', t); applyTheme();
+  }
   else if (b.id === 'calmBtn') { store.set('calm', isCalm() ? '0' : '1'); peek(false); applyCalm(); render(); }
   else if (b.id === 'peekBtn') peek(!document.documentElement.classList.contains('peek'));
   else if (b.dataset.mood) { jMood = b.dataset.mood; renderJournal(); }

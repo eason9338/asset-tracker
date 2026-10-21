@@ -32,8 +32,20 @@
   --shadow: 0 10px 30px rgba(0,0,0,.12);
 }
 :root.us-colors { --up: #0f7d3a; --down: #d23c3b; }
+/* 深色：手動選了深色，或沒選過而且系統是深色 */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111110; --surface: #1a1a19; --surface-2: #232321; --border: #2f2f2c;
+  --text: #ffffff; --text-2: #c3c2b7; --text-3: #8d8c85;
+  --accent: #3987e5; --accent-soft: rgba(57,135,229,.18);
+  --up: #f06a69; --down: #3fbf6f; --danger: #f06a69;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --c-semi: #9479e8; --c-tech: #3987e5; --c-consumer: #e59a45; --c-fin: #22a5b5; --c-health: #e2708f; --c-ind: #b8924c; --c-other: #8d8c85;
+  --shadow: 0 10px 30px rgba(0,0,0,.5);
+}
+:root[data-theme="dark"].us-colors { --up: #3fbf6f; --down: #f06a69; }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
     --bg: #111110; --surface: #1a1a19; --surface-2: #232321; --border: #2f2f2c;
     --text: #ffffff; --text-2: #c3c2b7; --text-3: #8d8c85;
@@ -43,7 +55,7 @@
     --c-semi: #9479e8; --c-tech: #3987e5; --c-consumer: #e59a45; --c-fin: #22a5b5; --c-health: #e2708f; --c-ind: #b8924c; --c-other: #8d8c85;
     --shadow: 0 10px 30px rgba(0,0,0,.5);
   }
-  :root.us-colors { --up: #3fbf6f; --down: #f06a69; }
+  :root:not([data-theme="light"]).us-colors { --up: #3fbf6f; --down: #f06a69; }
 }
 
 /* ================= 2. 基本元素與版面 ================= */
