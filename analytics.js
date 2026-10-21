@@ -717,6 +717,11 @@ function planTrades(p) {
   return data.transactions.filter(t => t.date >= from && t.date <= to &&
     (((t.type === 'buy' || t.type === 'sell') && sameGroup(t.symbol, p.sym)) || (t.type === 'option' && sameGroup(occ(t.symbol)?.root || '', p.sym))));
 }
+const planDots = p => {
+  // 等待期的圓點：每個交易日一顆，過了就填滿
+  const wait = p.wait ?? RULES.wait, left = planState(p) === 'waiting' ? tradingDaysBetween(today(), planExec(p)) : 0;
+  return `<span class="pl-dots" title="還要 ${left} 個交易日">${Array.from({ length: wait }, (_, i) => `<i class="${i < wait - left ? 'on' : ''}"></i>`).join('')}</span>`;
+};
 function planCells(p) {
   // 每一列固定三欄：標的／動作、數量／價格、狀態
   const st = planState(p), exec = planExec(p), next = planNextDate(p), a = actOf(p);
@@ -724,28 +729,43 @@ function planCells(p) {
   const unit = isOptAct(a) ? '口' : '股';
   const sub = p.repeat ? `${REPEAT[p.repeat]}・下次 ${fmtDay(next)}` : next ? `買進日 ${fmtDay(next)}` : p.exp ? `${p.exp.slice(5).replace('-', '/')} 到期` : '';
   const status = {
-    ready: next === today() ? ['<span class="badge solid">今天買</span>', ''] : ['<span class="badge solid">可以執行</span>', ''],
-    waiting: [`<span class="badge">${left} 天後</span>`, fmtDay(exec)],
+    ready: [`<span class="badge solid">${next === today() ? '今天買' : '可以執行'}</span>`, ''],
+    waiting: [`${planDots(p)}<span class="pl-left">${left} 天後</span>`, `${fmtDay(exec)} 起`],
     closed: ['<span class="badge muted">已完成</span>', (p.closedAt || p.created).slice(5).replace('-', '/')],
     void: ['<span class="badge muted">已作廢</span>', (p.closedAt || p.created).slice(5).replace('-', '/')],
   }[st];
   return `<div class="pl-c1"><b>${esc(p.sym)}</b><span class="pl-sub">${esc(planLabel(p))}</span></div>
     <div class="pl-c2">${p.qty ? `${p.qty} ${unit}${p.price ? ` @ <span class="money">${p.price}</span>` : ''}` : '<span class="muted">—</span>'}<span class="pl-sub">${sub || '&nbsp;'}</span></div>
-    <div class="pl-c3">${status[0]}<span class="pl-sub">${status[1] || '&nbsp;'}</span></div>`;
+    <div class="pl-c3"><div class="pl-st">${status[0]}</div><span class="pl-sub">${status[1] || '&nbsp;'}</span></div>`;
+}
+function planSteps(p) {
+  // 等待期的進度軸：寫好那天 → 每一個要等的交易日 → 可以下單
+  const wait = p.wait ?? RULES.wait, t = today();
+  const steps = [{ d: p.created, k: '寫好' }, ...Array.from({ length: wait }, (_, i) => ({ d: addTradingDays(p.created, i + 1), k: i === wait - 1 ? '可以下單' : `第 ${i + 1} 天` }))];
+  return `<div class="pl-steps">${steps.map(s => `<div class="pl-step ${s.d <= t ? 'done' : ''} ${s.d === t ? 'now' : ''}"><i></i><b>${s.k}</b><span>${s.d.slice(5).replace('-', '/')}</span></div>`).join('')}</div>`;
 }
 function planItem(p) {
-  // 點開才看理由和按鈕
-  const st = planState(p), exec = planExec(p);
-  const line = (k, t) => p[k] ? `<div class="pl-line"><span>${t}</span><div>${esc(p[k])}</div></div>` : '';
+  // 點開：等待進度、為什麼、條件、金額，按鈕在右下
+  const st = planState(p), active = ['waiting', 'ready'].includes(st);
   const done = planTrades(p).length;
+  const extra = [['addCond', '加碼'], ['exitCond', '出場'], ['rollCond', 'Roll']].filter(([k]) => p[k]);   // 舊版計畫才有
+  const facts = [
+    p.amount ? ['金額', `<span class="money">${usd0(p.amount)}</span>`] : null,
+    p.pct ? ['佔總資產', `<span class="money">${pctPlain(p.pct, 1)}</span>`] : null,
+    p.repeat ? ['重複', REPEAT[p.repeat]] : null,
+    done ? ['照計畫成交', `${done} 筆`] : null,
+    !active ? ['寫於', p.created] : null,
+  ].filter(Boolean);
   return `<details class="pl-item ${st}">
     <summary>${planCells(p)}</summary>
     <div class="pl-body">
-      ${p.thesis ? `<div class="pl-thesis">${esc(p.thesis)}</div>` : ''}
-      ${line('entry', '條件')}${line('addCond', '加碼')}${line('exitCond', '出場')}${line('rollCond', 'Roll')}
-      <div class="sub" style="margin-top:6px">${p.created} 寫・最早 ${exec} 可以下單${p.amount ? `・金額 <span class="money">${usd0(p.amount)}</span>（佔總資產 <span class="money">${pctPlain(p.pct, 1)}</span>）` : ''}${done ? `・照計畫成交了 ${done} 筆` : ''}</div>
-      <div class="plan-actions">${['waiting', 'ready'].includes(st)
-        ? `<button class="ghost" data-plan-edit="${p.id}">編輯</button><button class="ghost" data-plan-close="${p.id}">完成</button><button class="ghost" data-plan-void="${p.id}">作廢</button>`
+      ${active && (p.wait ?? RULES.wait) ? planSteps(p) : ''}
+      ${p.thesis ? `<blockquote class="pl-why"><span>為什麼</span>${esc(p.thesis).replace(/\n/g, '<br>')}</blockquote>` : ''}
+      ${p.entry ? `<div class="pl-cond"><span class="badge accent">條件</span><div>${esc(p.entry)}</div></div>` : ''}
+      ${extra.map(([k, t]) => `<div class="pl-cond"><span class="badge">${t}</span><div>${esc(p[k])}</div></div>`).join('')}
+      ${facts.length ? `<div class="pl-facts">${facts.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('')}</div>` : ''}
+      <div class="pl-acts">${active
+        ? `<button class="ghost" data-plan-edit="${p.id}">編輯</button><button class="ghost" data-plan-close="${p.id}">✓ 完成</button><button class="ghost danger" data-plan-void="${p.id}">作廢</button>`
         : `<button class="ghost danger" data-plan-del="${p.id}">刪除</button>`}</div>
     </div></details>`;
 }

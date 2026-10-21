@@ -376,11 +376,12 @@ function yearView(st, y, months) {
 }
 // 勝率：每一筆已實現損益算一次（股票＝每筆賣出，選擇權＝每筆平倉或到期）；正負 1 分錢以內算打平
 function winStats(events) {
-  const wins = events.filter(e => e.r > 0.005), losses = events.filter(e => e.r < -0.005);
+  // 賺超過 1 分錢才算勝，其他（包括打平）都算敗
+  const wins = events.filter(e => e.r > 0.005), losses = events.filter(e => e.r <= 0.005);
   const sumW = wins.reduce((a, e) => a + e.r, 0), sumL = losses.reduce((a, e) => a + e.r, 0);
   return {
-    n: events.length, w: wins.length, l: losses.length, t: events.length - wins.length - losses.length,
-    rate: wins.length + losses.length ? wins.length / (wins.length + losses.length) : null,
+    n: events.length, w: wins.length, l: losses.length,
+    rate: events.length ? wins.length / events.length : null,
     avgW: wins.length ? sumW / wins.length : 0, avgL: losses.length ? sumL / losses.length : 0,
     pf: sumL ? sumW / -sumL : null, total: sumW + sumL,
     best: events.reduce((a, e) => (!a || e.r > a.r ? e : a), null), worst: events.reduce((a, e) => (!a || e.r < a.r ? e : a), null),
@@ -391,7 +392,7 @@ function winTable(rows) {
   return `<div class="table-wrap"><table class="table"><thead><tr>
     <th>類別</th><th>筆數</th><th>勝率</th><th>勝／敗</th><th>平均賺</th><th>平均賠</th><th>獲利因子</th><th>合計</th></tr></thead><tbody>
     ${rows.filter(([, w]) => w.n).map(([k, w]) => `<tr><td>${k}</td><td class="num">${w.n}</td><td class="num"><b>${pct(w.rate)}</b></td>
-      <td class="num">${w.w}／${w.l}${w.t ? `<span class="muted">（平 ${w.t}）</span>` : ''}</td>
+      <td class="num">${w.w}／${w.l}</td>
       <td class="num up">${fmt(w.avgW, 'USD', { sign: true })}</td><td class="num down">${fmt(w.avgL, 'USD', { sign: true })}</td>
       <td class="num">${w.pf == null ? '—' : w.pf.toFixed(2)}</td><td class="num ${cls(w.total)}">${fmt(w.total, 'USD', { sign: true })}</td></tr>`).join('')}
   </tbody></table></div>`;
@@ -434,7 +435,7 @@ function renderPnl(st) {
       ${fx ? `<div class="s num">≈ ${fmt(pn.v * fx, 'TWD', { sign: true })}</div>` : ''}</div>
     ${pn.parts ? `<div class="pnl-parts">${pn.parts.map(([f, k, v]) => `<button class="pnl-part" data-f="${f}"><span class="k">${k}</span><span class="num ${cls(v)}">${sign(v)}</span></button>`).join('')}</div>` : ''}
     <div class="s pnl-notes">${pn.s.filter(Boolean).join('<br>')}</div>
-    ${pn.table ? `<div style="flex-basis:100%;min-width:0;max-width:100%">${pn.table}<div class="s" style="margin-top:4px">勝率＝賺錢筆數 ÷（賺＋賠筆數）；獲利因子＝總賺 ÷ 總賠，大於 1 代表整體賺錢</div></div>` : ''}
+    ${pn.table ? `<div style="flex-basis:100%;min-width:0;max-width:100%">${pn.table}<div class="s" style="margin-top:4px">勝率＝賺錢筆數 ÷ 全部筆數（打平算敗）；獲利因子＝總賺 ÷ 總賠，大於 1 代表整體賺錢</div></div>` : ''}
   </div>`;
 }
 
