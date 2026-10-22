@@ -235,12 +235,12 @@ function renderEvents(c) {
   const seen = new Set();
   for (let i = ev.length - 1; i >= 0; i--) { const k = ev[i].kind + ev[i].title + new Date(ev[i].t).toDateString(); if (seen.has(k)) ev.splice(i, 1); else seen.add(k); }
   if (!ev.length) { box.innerHTML = `<div class="empty">${eventCache.loading || !eventCache.data ? '讀取中…' : '接下來 75 天沒有已知的事件'}</div>`; return; }
-  box.innerHTML = ev.map(e => {
+  box.innerHTML = '<div class="ev-grid">' + ev.map(e => {
     const d = Math.ceil((e.t - now) / 864e5);
     return `<div class="ev-row"><span class="badge ${e.kind === '財報' ? 'bad' : ''}">${e.kind}</span>
       <div class="ev-main"><b>${e.title}</b><span class="sub">${esc(e.when)}${e.sub ? '・' + e.sub : ''}</span></div>
       <div class="ev-days num">${d <= 0 ? '今天' : `還有 ${d} 天`}</div></div>`;
-  }).join('') + `<div class="note">追蹤你直接持有的標的，以及 ETF 拆開後佔淨資產 ${EVENT_MIN * 100}% 以上的公司。財報與配息日期來自 Yahoo；財報當天股價和選擇權的波動通常最大。</div>`;
+  }).join('') + `</div><div class="note">追蹤你直接持有的標的，以及 ETF 拆開後佔淨資產 ${EVENT_MIN * 100}% 以上的公司。財報與配息日期來自 Yahoo；財報當天股價和選擇權的波動通常最大。</div>`;
 }
 
 // ============ 警示 ============
@@ -258,14 +258,7 @@ function computeAlerts(c) {
     const dd = idx / top - 1;
     if (-dd * 100 > a.dd) out.push({ lvl: 'danger', tag: '回撤', msg: `目前距離高點 <b>${pct(dd)}</b>，超過你設定的 ${a.dd}%` });
   }
-  // 交易計畫：今天可以執行、到停損、到目標
-  for (const p of (data.plans || []).filter(p => p.created && ['waiting', 'ready'].includes(planState(p)))) {
-    const name = `${esc(planLabel(p))} ${esc(p.sym)}`;
-    if (planExec(p) === today()) out.push({ lvl: 'calm', tag: '計畫', msg: `「${name}」的計畫今天起可以執行了：條件還成立就照計畫做，不成立就作廢。` });
-    const w = planState(p) === 'ready' ? planWatch(p) : null;
-    if (w?.hit) out.push({ lvl: 'calm', tag: '計畫', msg: `${esc(p.sym)} 到價了：現價 <b>${usd(w.px)}</b>，計畫價 <b>${usd(p.price)}</b>。條件還成立就照計畫${actOf(p) === 'sell' ? '賣出' : '買進'}。` });
-    if (planNextDate(p) === today() && planState(p) === 'ready') out.push({ lvl: 'calm', tag: '計畫', msg: `今天是「${name}」計畫裡的買進日${p.qty ? `（${p.qty} 股）` : ''}，照計畫買就好。` });
-  }
+  // 交易計畫不在這裡提醒：總覽和交易計畫頁的清單已經標出可以執行、到價了
   // 我的守則
   for (const r of c.rows.filter(x => isLevEtf(x.sym))) out.push({ lvl: 'danger', tag: '守則 4', msg: `持有槓桿 ETF ${esc(r.sym)}：照守則不能持有，可以隨時賣出` });
   for (const o of c.optRows.filter(o => isLevEtf(occ(o.sym).root))) out.push({ lvl: 'warn', tag: '守則 4', msg: `${esc(optName(o.sym))} 的標的是槓桿 ETF：照守則可以隨時平倉，不用等` });
@@ -377,7 +370,7 @@ function renderMetrics() {
   for (const x of rets) { idx *= 1 + x.r; top = Math.max(top, idx); dd.push({ x: +new Date(x.date), y: (idx / top - 1) * 100, label: x.date, d: x.date }); }
   dd.at(-1).label = to;
   lineChart(el('ddBox'), dd, { fmtY: v => v.toFixed(0) + '%', fmtTip: p => `${p.d}<br>距高點 <b>${p.y.toFixed(2)}%</b>`, color: 'var(--down)', zero: true });
-  el('metricsNote').textContent = '回撤圖：每天距離之前最高點跌了多少（時間加權，不受入金影響）。夏普、索提諾用日報酬年化；年化數字在期間短於 3 個月時不顯示。';
+  el('metricsNote').textContent = '回撤圖在左邊：每天距離之前最高點跌了多少（時間加權，不受入金影響）。夏普、索提諾用日報酬年化；年化數字在期間短於 3 個月時不顯示。';
 }
 
 // ============ 每月報酬 ============
@@ -531,12 +524,14 @@ function renderEtfView(c) {
     <span class="etf-look"><input id="etfLookup" placeholder="查其他 ETF，例如 QQQ" style="text-transform:uppercase"><button class="ghost" id="etfLookupBtn">查詢</button></span></div>`;
   if (!d) { box.innerHTML = head + '<div class="empty">正在抓成分股…</div>'; return; }
   if (d.error) { box.innerHTML = head + `<div class="empty">抓不到 ${esc(etfView)} 的成分股：${esc(d.error)}</div>`; return; }
-  const maxW = Math.max(...d.top.map(h => h.w), 1);
+  // 基金自己的現金、保證金、期貨部位（沒有股票代號）不是公司，不列
+  const top = d.top.filter(h => h.sym && h.sym !== 'USD' && !/\b(cash|collateral|money market)\b/i.test(h.name || ''));
+  const maxW = Math.max(...top.map(h => h.w), 1);
   box.innerHTML = head + `
     ${d.stocks ? '' : `<div class="sub" style="margin:8px 0">${esc(etfView)} 主要持有交換合約或選擇權，不是直接持有股票，所以曝險總覽不會用它來拆。</div>`}
     <div class="sub" style="margin:8px 0">共 ${d.count} 檔持股，前 ${d.top.length} 大合計 ${d.topSum.toFixed(1)}%${mine ? `・你透過 ${esc(etfView)} 的曝險 <span class="money">${usd0(mine)}</span>` : ''}</div>
     <div class="table-wrap"><table class="table etf-table"><thead><tr><th>#</th><th class="l">代號</th><th class="l">公司</th><th>每 100 元裡</th>${mine ? '<th>你的曝險</th>' : ''}</tr></thead>
-      <tbody>${d.top.map((h, i) => `<tr><td class="rank">${i + 1}</td><td class="l"><b>${esc(h.sym || '—')}</b></td><td class="l name">${esc(titleCase(h.name))}</td>
+      <tbody>${top.map((h, i) => `<tr><td class="rank">${i + 1}</td><td class="l"><b>${esc(h.sym || '—')}</b></td><td class="l name">${esc(titleCase(h.name))}</td>
         <td class="w" style="--w:${(h.w / maxW * 100).toFixed(1)}%">${h.w.toFixed(2)} 元</td>${mine ? `<td><span class="money">${usd0(mine * h.w / 100)}</span></td>` : ''}</tr>`).join('')}</tbody></table></div>
     <div class="note">資料來自 Zacks（${new Date(d.fetched * 1000).toLocaleDateString('zh-TW')} 抓取${d.stale ? '，今天抓不到，先用上次的資料' : ''}），ETF 的持股每天會小幅變動。</div>`;
 }
@@ -836,7 +831,8 @@ function renderOptRisk(c) {
     let duty = '—';
     if (o.qty < 0 && !oc.call) {
       const need = oc.strike * 100 * Math.abs(o.qty);
-      duty = `被指派要付 <span class="money">${usd0(need)}</span><span class="sub">${need > c.cashUSD ? `現金不足 <span class="money">${usd0(need - Math.max(c.cashUSD, 0))}</span>，會用到融資` : '現金足夠'}</span>`;
+      const cash = c.cashUSD + c.bills;   // 短債 ETF 隨時可以賣成現金
+      duty = `被指派要付 <span class="money">${usd0(need)}</span><span class="sub">${need > cash ? `現金與短債不足 <span class="money">${usd0(need - Math.max(cash, 0))}</span>，會用到融資` : `現金與短債 <span class="money">${usd0(cash)}</span>，足夠`}</span>`;
     } else if (o.qty < 0 && oc.call) {
       const need = 100 * Math.abs(o.qty), have = data.holdings[oc.root]?.shares || 0;
       duty = `被指派要交 ${need} 股<span class="sub">${have >= need ? `已持有 ${have} 股（有掩護）` : `只持有 ${have} 股（無掩護，風險無上限）`}</span>`;
@@ -888,7 +884,7 @@ function renderJournal() {
 // ============ 交易分析 ============
 let anaView = store.get('anaView', 'symbol');
 let anaShowAll = false;
-function stockHoldingEvents(st) { return stockLots(st).events; }
+function stockHoldingEvents(st) { return stockLots(st).events.filter(e => !isCashLike(e.sym)); }   // 短債進出是現金調度，不算交易
 function stockLots(st) {
   // 先進先出配對買進日期，算每筆賣出持有幾天（損益沿用平均成本法的數字）；lots 是還沒賣掉的批次
   const trades = data.transactions.filter(t => t.type === 'buy' || t.type === 'sell')
@@ -975,7 +971,7 @@ function renderAnalysis() {
   if (anaView === 'symbol') {
     const map = {};
     const add = (g, kind, e) => { const m = map[g] ??= { stock: [], opt: [] }; m[kind].push(e); };
-    for (const e of st.stockEvents) add(grp(e.sym), 'stock', e);
+    for (const e of st.stockEvents) if (!isCashLike(e.sym)) add(grp(e.sym), 'stock', e);
     for (const e of st.optEvents) add(grp(occ(e.sym)?.root || e.sym), 'opt', e);
     // 還抱著的部位：未實現損益也算進去（只持有、沒賣過的標的也會列出來）
     const op = openPositions(calc(), st), un = {};
@@ -1024,7 +1020,7 @@ function renderAnalysis() {
       ${bucketTable('賣方：開倉時距離到期天數', B, ev.filter(e => e.side === 'short'), e => e.dte)}</div>
       <div class="note">看你擅長哪種天期：例如短天期賣方（0–7 天）是不是真的穩定賺時間價值。同一合約分批開倉時，開倉日取加權平均。</div>`;
   } else {
-    const ev = [...st.stockEvents.map(e => ({ ...e, k: 'stock' })), ...st.optEvents.map(e => ({ ...e, k: 'opt' }))];
+    const ev = [...st.stockEvents.filter(e => !isCashLike(e.sym)).map(e => ({ ...e, k: 'stock' })), ...st.optEvents.map(e => ({ ...e, k: 'opt' }))];
     const edges = [-Infinity, -500, -200, -100, -50, 0, 50, 100, 200, 500, Infinity];
     const label = i => edges[i] === -Infinity ? `< −$${-edges[i + 1]}` : edges[i + 1] === Infinity ? `> $${edges[i]}` : `${edges[i] < 0 ? '−$' + -edges[i] : '$' + edges[i]} ～ ${edges[i + 1] <= 0 ? (edges[i + 1] ? '−$' + -edges[i + 1] : '$0') : '$' + edges[i + 1]}`;
     const bins = edges.slice(0, -1).map((_, i) => ({ label: label(i), s: 0, o: 0, neg: edges[i + 1] <= 0 }));
@@ -1226,6 +1222,16 @@ function squarify(items, rect) {
   if (row.length) place(row, r);
   return out;
 }
+// 方塊圖的標籤：在方塊裡放得下的最大字；先試完整名稱、再試短名稱，細長的方塊改直書；小方塊內距縮小
+function fitLabel(texts, w, h, maxFs = 13) {
+  const small = w < 46 || h < 32, px = w < 22 ? 1 : small ? 3 : 8, py = small ? 2 : 6, aw = w - 2 * px - 1, ah = h - 2 * py;
+  const cw = s => [...s].reduce((n, ch) => n + (/[\u3000-\u9fff]/.test(ch) ? 1 : ch === ' ' ? 0.32 : 0.64), 0);
+  const pad = `${py}px ${px}px`;
+  for (const t of texts) { const fs = Math.min(maxFs, aw / cw(t), ah * 0.8); if (fs >= 8.5) return { text: t, fs: +fs.toFixed(1), pad }; }
+  if (h > w * 1.6) for (const t of texts) { const fs = Math.min(maxFs, ah / cw(t), aw); if (fs >= 8.5) return { text: t, fs: +fs.toFixed(1), pad, v: true }; }
+  const t = texts.at(-1), fs = Math.max(Math.min(aw / cw(t), ah * 0.8), h > w * 1.6 ? Math.min(ah / cw(t), aw) : 0);
+  return fs >= 6.5 ? { text: t, fs: +fs.toFixed(1), pad, v: h > w * 1.6 && ah / cw(t) > aw / cw(t) } : { pad };
+}
 function renderTreemap(c) {
   const box = el('treemapBox'); if (!box || box.clientWidth === 0) return;
   document.querySelectorAll('[data-tmv]').forEach(b => b.classList.toggle('on', b.dataset.tmv === tmView));
@@ -1271,13 +1277,13 @@ function renderTreemap(c) {
     for (const t of squarify(g.kids.sort((a, b) => b.v - a.v), inner)) { flat.push(t); html += tile(t, flat.length - 1, t.x, t.y, t.w, t.h); }
   }
   function tile(t, i, x, y, w, h) {
-    const big = w > 64 && h > 38, mid = w > 38 && h > 22, tag = t.link ? 'a' : 'div';
+    const tag = t.link ? 'a' : 'div', L = fitLabel([t.key], w, h, w > 64 && h > 38 ? Math.min(20, 11 + Math.sqrt(w * h) / 18) : 13);
     // 部位越大顏色越深（同一個藍色）
     const mix = Math.round(14 + 66 * Math.sqrt(t.v / vMax));
     const style = t.link ? `background:color-mix(in srgb, var(--accent) ${mix}%, var(--surface));color:${mix > 55 ? '#fff' : 'var(--text)'}` : '';
     return `<${tag} class="tm-tile${t.link ? '' : ' gray'}${t.link && mix > 55 ? ' dark' : ''}" data-ti="${i}" ${t.link ? `href="/symbol?s=${encodeURIComponent(t.key)}"` : ''}
-      style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;${style}">
-      ${mid ? `<b style="font-size:${big ? Math.min(20, 11 + Math.sqrt(w * h) / 18) : 11}px">${esc(t.key)}</b>` : ''}${big ? `<span>${pctPlain(t.v / base, 1)}</span>` : ''}</${tag}>`;
+      style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;padding:${L.pad};${style}">
+      ${L.text ? `<b class="${L.v ? 'vert' : ''}" style="font-size:${L.fs}px">${esc(L.text)}</b>` : ''}${L.text && !L.v && h - L.fs > 30 && w > 44 ? `<span>${pctPlain(t.v / base, 1)}</span>` : ''}</${tag}>`;
   }
   box.innerHTML = html + '<div class="chart-tip" hidden></div>';
   const tip = box.querySelector('.chart-tip');
@@ -1474,7 +1480,7 @@ window.renderExtras = function renderExtras(c) {
 };
 
 // ============ 給 explore.js（特殊功能頁）用的共用函式 ============
-window.AX = { el, usd, usd0, pct, pctPlain, avg, days, store, dailyReturns, benchRet, grp, grpName, stockLots, optionLifeEvents,
+window.AX = { el, usd, usd0, pct, pctPlain, avg, days, store, dailyReturns, benchRet, grp, grpName, stockLots, optionLifeEvents, seriesStats, betaCorr, riskFree, benchOk, fitLabel,
               squarify, outsideAsFlow, sectorOf };
 
 // ============ 事件 ============

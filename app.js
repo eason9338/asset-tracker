@@ -13,7 +13,10 @@ const LEV_DEFAULT = {
   TQQQ: 3, UPRO: 3, SPXL: 3, SOXL: 3, TECL: 3, FNGU: 3, TNA: 3, LABU: 3, UDOW: 3,
   SH: -1, PSQ: -1, TSLQ: -1, SDS: -2, QID: -2, SQQQ: -3, SPXU: -3, SPXS: -3, SOXS: -3, TZA: -3,
 };
-const levOf = s => data.settings.leverage?.[s] ?? LEV_DEFAULT[s] ?? 1;
+// 短天期國庫券 ETF：全站都當現金（不算曝險、不算交易、不算持倉市值）
+const CASH_LIKE = new Set(['BOXX', 'BIL', 'SGOV', 'SHV', 'USFR', 'TFLO', 'CLIP', 'XBIL']);
+const isCashLike = s => CASH_LIKE.has(s);
+const levOf = s => data.settings.leverage?.[s] ?? (isCashLike(s) ? 0 : LEV_DEFAULT[s] ?? 1);
 const OPT_RE = /^[A-Z.]+\d{6}[CP]\d{8}$/;
 let lastUpdate = null;
 let chartRange = '365';    // 總資產走勢的區間：天數、'ytd' 或 '0'（全部）；預設一年
@@ -153,7 +156,7 @@ function marketSession() {
 
 // ============ Calculations ============
 function calc() {
-  let stock = 0, cost = 0, day = 0, exposure = 0, missing = [];
+  let stock = 0, cost = 0, day = 0, exposure = 0, bills = 0, missing = [];
   const rows = Object.entries(data.holdings).map(([sym, h]) => {
     const q = quotes[sym];
     const price = q?.price;
@@ -161,7 +164,7 @@ function calc() {
     const avg = h.shares ? h.cost / h.shares : 0;
     const dayChg = q?.prevClose ? h.shares * (price - q.prevClose) : null;
     const lev = levOf(sym);
-    if (value != null) { stock += value; cost += h.cost; day += dayChg || 0; exposure += value * lev; } else missing.push(sym);
+    if (value != null) { stock += value; cost += h.cost; day += dayChg || 0; exposure += value * lev; if (isCashLike(sym)) bills += value; } else missing.push(sym);
     return { sym, ...h, avg, price, value, lev, session: q?.session, regularPrice: q?.regularPrice,
              dayPct: q?.prevClose ? price / q.prevClose - 1 : null, name: q?.name };
   });
@@ -182,7 +185,7 @@ function calc() {
   }).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
   const cashUSD = data.cash.USD || 0;
   const totalUSD = stock + optValue + cashUSD;
-  return { rows, optRows, optValue, stock, cost, day, exposure, missing, cashUSD, totalUSD, totalTWD: fx ? totalUSD * fx : null,
+  return { rows, optRows, optValue, stock, cost, day, exposure, bills, missing, cashUSD, totalUSD, totalTWD: fx ? totalUSD * fx : null,
            leverage: totalUSD > 0 ? exposure / totalUSD : null };
 }
 // 把美元金額轉成顯示幣別
@@ -223,10 +226,11 @@ function render() {
   $('#updatedAt').textContent = lastUpdate ? '更新於 ' + lastUpdate.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '尚未更新';
 
   // stats
-  $('#stStock').textContent = fmt(c.stock + c.optValue, 'USD');
-  $('#stStockSub').innerHTML = `<span class="muted">${c.optRows.length ? `股票 ${fmt(c.stock, 'USD', { digits: 0 })}・選擇權 ${fmt(c.optValue, 'USD', { digits: 0 })}` : fx ? `≈ ${fmt(c.stock * fx, 'TWD')}` : ''}</span>`;
-  $('#stUSD').textContent = fmt(c.cashUSD, 'USD');
-  $('#stUSDSub').textContent = fx ? '≈ ' + fmt(c.cashUSD * fx, 'TWD') : '';
+  const held = c.stock - c.bills;
+  $('#stStock').textContent = fmt(held + c.optValue, 'USD');
+  $('#stStockSub').innerHTML = `<span class="muted">${c.optRows.length ? `股票 ${fmt(held, 'USD', { digits: 0 })}・選擇權 ${fmt(c.optValue, 'USD', { digits: 0 })}` : fx ? `≈ ${fmt(held * fx, 'TWD')}` : ''}</span>`;
+  $('#stUSD').textContent = fmt(c.cashUSD + c.bills, 'USD');
+  $('#stUSDSub').textContent = c.bills ? `現金 ${fmt(c.cashUSD, 'USD', { digits: 0 })}・短債 ETF ${fmt(c.bills, 'USD', { digits: 0 })}` : fx ? '≈ ' + fmt(c.cashUSD * fx, 'TWD') : '';
   $('#stFx').textContent = fx ? fx.toFixed(3) : '—';
   $('#stLev').textContent = c.leverage != null ? c.leverage.toFixed(2) + 'x' : '—';
   $('#stLevSub').textContent = c.leverage != null ? `曝險 ${fmt(c.exposure, 'USD', { digits: 0 })} ／ 淨資產 ${fmt(c.totalUSD, 'USD', { digits: 0 })}` : '';
@@ -238,10 +242,10 @@ function render() {
     hb.innerHTML = `<tr><td colspan="7" class="empty">還沒有持股，上傳券商的持倉檔或交易紀錄開始</td></tr>`;
   } else {
     const totalAssetUSD = c.totalUSD || c.stock || 1;
-    hb.innerHTML = c.rows.map(r => {
+    const row = r => {
       const share = r.value != null ? r.value / totalAssetUSD : 0;
       return `<tr>
-        <td><a class="sym sym-link" href="/symbol?s=${encodeURIComponent(window.symGroup?.(r.sym).g || r.sym)}">${esc(r.sym)}</a>${r.lev !== 1 ? `<span class="badge xs accent">${r.lev}x</span>` : ''}<span class="sym-name">${esc(r.name || '')}</span></td>
+        <td><a class="sym sym-link" href="/symbol?s=${encodeURIComponent(window.symGroup?.(r.sym).g || r.sym)}">${esc(r.sym)}</a>${r.lev !== 1 && !isCashLike(r.sym) ? `<span class="badge xs accent">${r.lev}x</span>` : ''}<span class="sym-name">${esc(r.name || '')}</span></td>
         <td class="num">${fmtShares(r.shares)}</td>
         <td class="num">${fmt(r.avg)}</td>
         <td class="num">${r.price != null ? fmt(r.price) + (SESSION_TAG[r.session] ? ` <span class="badge xs">${SESSION_TAG[r.session]}</span><span class="sym-name">收盤 ${fmt(r.regularPrice)}</span>` : '') : '<span class="muted">—</span>'}</td>
@@ -249,7 +253,9 @@ function render() {
         <td class="num">${fmt(r.value)}</td>
         <td class="num"><div class="alloc"><span>${(share * 100).toFixed(1)}%</span><div class="alloc-bar"><i style="width:${Math.min(100, share * 100)}%"></i></div></div></td>
       </tr>`;
-    }).join('') + c.optRows.map(o => {
+    };
+    const bills = c.rows.filter(r => isCashLike(r.sym));
+    hb.innerHTML = c.rows.filter(r => !isCashLike(r.sym)).map(row).join('') + c.optRows.map(o => {
       const share = o.value / totalAssetUSD;
       return `<tr>
         <td><span class="sym">${esc(optName(o.sym))}</span><span class="sym-name">選擇權${o.delta != null ? `・Δ ${o.delta.toFixed(2)}` : ''}</span></td>
@@ -260,7 +266,7 @@ function render() {
         <td class="num">${fmt(o.value)}</td>
         <td class="num"><div class="alloc"><span>${(share * 100).toFixed(1)}%</span><div class="alloc-bar"><i style="width:${Math.min(100, Math.abs(share) * 100)}%"></i></div></div></td>
       </tr>`;
-    }).join('');
+    }).join('') + (bills.length ? `<tr class="hold-sep"><td colspan="7">短債 ETF（當現金，不算曝險）</td></tr>` + bills.map(row).join('') : '');
   }
   const lastOptTime = Math.max(0, ...c.optRows.map(o => o.time || 0));
   $('#optNote').textContent = c.optRows.length
@@ -434,7 +440,7 @@ function renderPnl(st) {
           st.outside ? `另有帳外獲利 ${fmt(st.outside)}（計入總已實現損益）` : ''] },
   };
   // 勝率表：股票、選擇權（分買方、賣方）
-  const sw = winStats(st.stockEvents), ow = winStats(st.optEvents);
+  const sw = winStats(st.stockEvents.filter(e => !isCashLike(e.sym))), ow = winStats(st.optEvents);
   const longW = winStats(st.optEvents.filter(e => e.side === 'long')), shortW = winStats(st.optEvents.filter(e => e.side === 'short'));
   panels.trade.table = winTable([['股票（每筆賣出）', sw]]);
   panels.option.table = winTable([['全部', ow], ['買方（buy call／put）', longW], ['賣方（sell call／put）', shortW]]);
@@ -506,6 +512,7 @@ function renderTx() {
   const sg = txSearch && (window.symGroup?.(txSearch) || { g: txSearch, name: txSearch });
   $('#txSymLink').innerHTML = txSearch && list.length ? `<a class="card-link" href="/symbol?s=${encodeURIComponent(sg.g)}">看 ${esc(sg.name)} 的完整分析 →</a>` : '';
   $('#txCount').textContent = txSearch || txYear !== 'all' ? `${list.length} 筆` : '';
+  if (!txSearch) list = list.filter(t => !((t.type === 'buy' || t.type === 'sell') && isCashLike(t.symbol)));   // 短債進出等同現金調度
   if (txFilter === 'trade') list = list.filter(t => ['buy', 'sell', 'adjust'].includes(t.type));
   if (txFilter === 'option') list = list.filter(t => t.type === 'option' || t.type === 'expire');
   if (txFilter === 'cash') list = list.filter(t => ['income', 'expense'].includes(t.type));
@@ -515,7 +522,7 @@ function renderTx() {
     let content = '', amount = '';
     switch (t.type) {
       case 'buy': content = t.split ? `<b>${esc(t.symbol)}</b> 股票分割，多 ${fmtShares(t.shares)} 股` : `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ <span class="money">${fmt(t.price)}</span>`; amount = t.fromCash ? `<span class="muted">${fmt(-t.total, 'USD')}</span>` : `<span class="muted">${fmt(t.total)}</span>`; break;
-      case 'sell': { const r = st.perSell[t.id]; content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ <span class="money">${fmt(t.price)}</span>`; amount = fmt(t.total, 'USD', { sign: true }) + (r != null ? `<br><span class="rz ${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>` : ''); break; }
+      case 'sell': { const r = st.perSell[t.id]; content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ <span class="money">${fmt(t.price)}</span>`; amount = fmt(t.total, 'USD', { sign: true }) + (r != null ? `<br><span class="rz ${Math.abs(r) < 0.005 ? 'muted' : cls(r)}">已實現 ${Math.abs(r) < 0.005 ? '$0.00' : fmt(r, 'USD', { sign: true })}</span>` : ''); break; }
       case 'income': content = (t.category === '帳外獲利' ? '帳外獲利 <span class="card-note">（計入獲利，不算入金）</span>' : esc(t.category || '收入'))
           + (/^(入金|帳外獲利)/.test(t.category || '')
           ? ` <button class="ghost" style="font-size:11px;padding:1px 6px;color:var(--text-3)" data-reclass="${t.id}" title="${t.category === '帳外獲利' ? '改回入金：這筆是自己存進來的錢' : '如果這筆其實是在別處投資賺到、轉進來的錢，按這裡把它算成獲利'}">${t.category === '帳外獲利' ? '↺ 改回入金' : '↺ 改成帳外獲利'}</button>` : ''); amount = `<span class="up">${fmt(t.amount, t.currency, { sign: true })}</span>`; break;
@@ -541,9 +548,8 @@ function renderTx() {
       <td class="l"><span class="badge">${TX_LABEL[t.type] || t.type}</span></td>
       <td class="l">${content}</td>
       <td class="num">${amount}</td>
-      <td class="muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(t.note || '')}</td>
     </tr>`;
-  }).join('') : `<tr><td colspan="5" class="empty">尚無紀錄</td></tr>`;
+  }).join('') : `<tr><td colspan="4" class="empty">尚無紀錄</td></tr>`;
 }
 
 

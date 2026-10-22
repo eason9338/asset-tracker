@@ -4,7 +4,7 @@
     <div class="card-head"><div id="sQuote" class="s-quote"></div><span id="sRange"></span></div>
     <div class="s-range-chg" id="sRangeChg"></div>
     <div class="chart-box s-chart" id="sChart"></div>
-    <div class="note">沒有公開市場，股價就是每股淨值：總資產 ÷ 流通在外股數。開戶那天每股 $10；入金照當時的股價發行新股、出金照股價買回，所以入金出金不會讓股價變動，只有投資賺賠會。「年化報酬（股價）」看的是投資功力，適合跟大盤比；「年化報酬（金額加權）」看的是你的錢實際長了多少，入金的時機會影響它。</div>
+    <div class="note">沒有公開市場，股價就是每股淨值：總資產 ÷ 流通在外股數。開戶那天每股 $10；入金照當天收盤的股價發行新股、出金照股價買回，所以入金出金不會讓股價變動，只有投資賺賠會。圖上的空心點是重大訊息（藍色是交易日記），滑過去可以看內容。「年化報酬（股價）」看的是投資功力，適合跟大盤比；「年化報酬（金額加權）」看的是你的錢實際長了多少，入金的時機會影響它。</div>
   </div>
 </div>
 <div class="col span-4">
@@ -12,10 +12,14 @@
     <div class="card-head"><h2>關鍵數據</h2></div>
     <div id="sStats"></div>
   </div>
+  <div class="card">
+    <div class="card-head"><h2>重大訊息</h2><span class="card-note">交易日記、增資、業外收益</span></div>
+    <div id="sNews"></div>
+  </div>
 </div>
 <div class="col span-12">
   <div class="card">
-    <div class="card-head"><h2>股本變動</h2><span class="card-note">入金是增資發行新股、出金是買回股票，價格用前一天收盤的股價</span></div>
+    <div class="card-head"><h2>股本變動</h2><span class="card-note">入金是增資發行新股、出金是買回股票，價格用當天收盤的股價</span></div>
     <div id="sShares"></div>
   </div>
 </div>

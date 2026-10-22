@@ -2,7 +2,7 @@
 // 只讀資料不寫入；共用函式來自 analytics.js 的 window.AX 與 app.js 的全域函式
 (() => {
 'use strict';
-const { el, usd, usd0, pct, pctPlain, avg, days, store, dailyReturns, grp, stockLots, optionLifeEvents, squarify, outsideAsFlow } = window.AX;
+const { el, usd, usd0, pct, pctPlain, avg, days, store, dailyReturns, benchRet, grp, stockLots, optionLifeEvents, squarify, outsideAsFlow, seriesStats, betaCorr, riskFree, benchOk, fitLabel } = window.AX;
 const addDays = (d, n) => new Date(new Date(d + 'T12:00:00Z').getTime() + n * 864e5).toISOString().slice(0, 10);
 const WEEK = '日一二三四五六';
 const weekday = d => new Date(d + 'T12:00:00Z').getUTCDay();
@@ -14,6 +14,7 @@ function personaEvents() {
   // 每一筆已實現的交易：類別、損益、持有天數、開倉日（賣出日往回推持有天數）
   const st = realizedStats(), ev = [];
   for (const e of stockLots(st).events) {
+    if (isCashLike(e.sym)) continue;   // 短債進出是現金調度，不算交易
     const lev = levOf(e.sym) !== 1 && grp(e.sym) !== 'CASH';
     ev.push({ kind: lev ? 'lev' : 'stock', sym: e.sym, date: e.date, r: e.r, hold: e.hold || 0 });
   }
@@ -227,19 +228,16 @@ function rRange(k) {
   return [`${y}-${String(q * 3 - 2).padStart(2, '0')}-01`, `${y}-${m}-${q === 1 || q === 4 ? 31 : 30}`];
 }
 function rUnits() {
-  // 股數：開戶那天每股 $10 發行；之後入金照前一天收盤的每股淨值增發新股、出金照每股淨值買回（跟基金的單位一樣，股價就是時間加權報酬）
-  if (rUnits.c && rUnits.n === data.history.length) return rUnits.c;
-  const hist = data.history.filter(x => x.usd > 0), flows = externalFlows().sort((a, b) => a.date.localeCompare(b.date)), out = {};
+  // 股價＝開戶那天 $10 × 每天的時間加權報酬連乘（跟績效頁同一套算法，數字才對得起來）；股數＝總資產 ÷ 股價
+  // 等於入金那天照收盤股價增發新股、出金照股價買回（跟基金的單位一樣）
+  const key = data.history.length + '|' + outsideAsFlow() + '|' + data.history.at(-1)?.usd;
+  if (rUnits.c && rUnits.key === key) return rUnits.c;
+  const hist = data.history.filter(x => x.usd > 0), out = {};
   if (!hist.length) return out;
-  let units = hist[0].usd / 10, j = 0;
-  while (j < flows.length && flows[j].date <= hist[0].date) j++;
-  out[hist[0].date] = units;
-  for (let i = 1; i < hist.length; i++) {
-    const nav = hist[i - 1].usd / units;
-    while (j < flows.length && flows[j].date <= hist[i].date) { units += flows[j].usd / nav; j++; }
-    out[hist[i].date] = units;
-  }
-  rUnits.c = out; rUnits.n = data.history.length;
+  const r = Object.fromEntries(dailyReturns(hist, outsideAsFlow()).map(x => [x.date, x.r]));
+  let p = 10;
+  for (const h of hist) { if (r[h.date] != null) p *= 1 + r[h.date]; out[h.date] = h.usd / p; }
+  rUnits.c = out; rUnits.key = key;
   return out;
 }
 const rPrev = k => k.length === 4 ? String(+k - 1) : `${+k.slice(0, 4) - 1}Q${k.slice(5)}`;   // 去年同期
@@ -510,10 +508,25 @@ function renderReport() {
 // ================= 股價 =================
 // 虛擬公司的股價＝每股淨值（總資產 ÷ 流通在外股數）；股數的算法見 rUnits
 const TICKER = 'AKIRA';
-let sRange = '91';   // 預設看 3 個月
+let sRange = '91', sNewsAll = false;   // 預設看 3 個月
 function stockSeries() {
   const U = rUnits();
   return data.history.filter(x => x.usd > 0 && U[x.date]).map(x => ({ date: x.date, p: x.usd / U[x.date], units: U[x.date], usd: x.usd }));
+}
+// 重大訊息：交易日記是經營者手記，入金是增資、出金是減資，帳外獲利是業外收益入帳
+const JMOOD = { calm: '😌', sure: '🙂', meh: '😐', anx: '😣', rash: '😤' };
+function stockNews(all) {
+  const at = d => all.find(q => q.date >= d), out = [];
+  for (const j of data.journal || []) out.push({ date: j.date, kind: 'note', tag: '經營者手記', text: `${JMOOD[j.mood] || ''} ${j.text}`.trim(), sym: j.sym });
+  for (const t of data.transactions) {
+    if ((t.type !== 'income' && t.type !== 'expense') || t.date <= all[0].date) continue;
+    const c = t.category || '', amt = t.currency === 'USD' ? t.amount : null;
+    if (c.startsWith('帳外獲利')) out.push({ date: t.date, kind: 'outside', tag: '業外收益', text: `加密貨幣交易獲利入帳 ${amt != null ? usd0(amt) : ''}` });
+    else if (/^入金/.test(c)) out.push({ date: t.date, kind: 'cap', tag: '增資', text: `增資 ${amt != null ? usd0(amt) : fmt(t.amount, t.currency)}` });
+    else if (/^出金/.test(c)) out.push({ date: t.date, kind: 'cap', tag: '減資', text: `買回股票 ${amt != null ? usd0(amt) : fmt(t.amount, t.currency)}` });
+  }
+  for (const n of out) n.q = at(n.date);
+  return out.filter(n => n.q).sort((a, b) => b.date.localeCompare(a.date));
 }
 function renderStock() {
   const box = el('sChart'); if (!box) return;
@@ -531,6 +544,7 @@ function renderStock() {
   const pts = all.filter(x => x.date >= from);
   const base = all.filter(x => x.date < from).at(-1) || pts[0], rc = last.p - base.p, color = rc >= 0 ? 'var(--up)' : 'var(--down)';
   el('sRangeChg').innerHTML = `區間漲跌 <b class="num ${cls(rc)}">${rc >= 0 ? '+' : '−'}$${Math.abs(rc).toFixed(3)}（${pct(rc / base.p)}）</b>`;
+  const news = stockNews(all), newsAt = {}; for (const n of news) (newsAt[n.q.date] ??= []).push(n);
   const W = box.clientWidth, H = box.clientHeight, padL = 52, padR = 12, padT = 12, padB = 24;
   const vals = pts.map(x => x.p).concat(sRange === 'all' ? [10] : []);
   let min = Math.min(...vals), max = Math.max(...vals); const pad = (max - min) * 0.08 || 0.5; min -= pad; max += pad;
@@ -543,6 +557,7 @@ function renderStock() {
     <path d="${line}L${x(n - 1)},${H - padB}L${x(0)},${H - padB}Z" fill="${color}" opacity=".08"/>
     <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>
     <text class="axis-text" x="${padL}" y="${H - 6}">${pts[0].date}</text><text class="axis-text" x="${W - padR}" y="${H - 6}" text-anchor="end">${last.date}</text>
+    ${pts.map((q, i) => newsAt[q.date] ? `<circle cx="${x(i)}" cy="${y(q.p)}" r="5" fill="var(--surface)" stroke="${newsAt[q.date].some(n => n.kind === 'note') ? 'var(--accent)' : 'var(--text-3)'}" stroke-width="2"/>` : '').join('')}
     <line class="xc" y1="${padT}" y2="${H - padB}" stroke="var(--text-3)" visibility="hidden"/><circle class="xd" r="4" fill="${color}" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>
     <rect class="xh" x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent"/>
   </svg><div class="chart-tip" hidden></div>`;
@@ -552,7 +567,7 @@ function renderStock() {
     for (const [a, v] of [['x1', x(i)], ['x2', x(i)]]) cx.setAttribute(a, v);
     cx.setAttribute('visibility', 'visible'); dot.setAttribute('cx', x(i)); dot.setAttribute('cy', y(q.p)); dot.setAttribute('visibility', 'visible');
     tip.hidden = false; tip.style.left = x(i) + 'px'; tip.style.top = padT + 'px'; tip.style.transform = x(i) > W / 2 ? 'translate(calc(-100% - 10px), 0)' : 'translate(10px, 0)';
-    tip.innerHTML = `<div style="margin-bottom:3px">${q.date}</div><div class="row"><span>股價</span><b>$${q.p.toFixed(3)}</b></div><div class="row"><span>區間漲跌</span><b>${pct(d / base.p)}</b></div>`;
+    tip.innerHTML = `<div style="margin-bottom:3px">${q.date}</div><div class="row"><span>股價</span><b>$${q.p.toFixed(3)}</b></div><div class="row"><span>區間漲跌</span><b>${pct(d / base.p)}</b></div>${(newsAt[q.date] || []).map(n => `<div class="s-tip-news"><b>${n.tag}</b> ${esc(n.text.length > 60 ? n.text.slice(0, 60) + '…' : n.text)}</div>`).join('')}`;
   });
   hit.addEventListener('pointerleave', () => { cx.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); tip.hidden = true; });
 
@@ -563,21 +578,17 @@ function renderStock() {
   const t0 = all.filter(x => x.date <= addDays(last.date, -365)).at(-1) || all[0];
   const flows = externalFlows().filter(f => f.date > t0.date && f.date <= last.date).reduce((s, f) => s + f.usd, 0);
   const ttm = (last.usd - t0.usd - flows) / avg(all.filter(x => x.date > t0.date).map(x => x.units));
-  const rets = all.slice(1).map((q, i) => Math.log(q.p / all[i].p));
-  const vol = Math.sqrt(rets.reduce((a, r) => a + (r - avg(rets)) ** 2, 0) / (rets.length - 1) * 252);
-  let peak = 0, mdd = 0; for (const q of all) { peak = Math.max(peak, q.p); mdd = Math.min(mdd, q.p / peak - 1); }
-  const years = days(all[0].date, last.date) / 365, cagr = (last.p / 10) ** (1 / years) - 1;
+  // 年化報酬、波動、回撤、Beta：跟績效頁的「風險報酬指標（全部）」用同一個函式算
+  const hist = data.history.filter(x => x.usd > 0), rets = dailyReturns(hist, outsideAsFlow());
+  const S = seriesStats(rets, hist[0].date, hist.at(-1).date, riskFree(hist[0].date, hist.at(-1).date));
+  const cagr = S.ann ?? S.total, vol = S.vol, mdd = S.mdd;
   // 金額加權年化報酬（XIRR）：把開戶資產、每筆入金出金和現在的總資產當現金流，算出讓淨現值為 0 的報酬率；入金的時機會影響它
   const cf = [{ d: all[0].date, v: -all[0].usd }, ...externalFlows().filter(f => f.date > all[0].date && f.date <= last.date).map(f => ({ d: f.date, v: -f.usd })), { d: last.date, v: last.usd }];
   const npv = r => cf.reduce((s, f) => s + f.v / (1 + r) ** (days(all[0].date, f.d) / 365), 0);
   let rLo = -0.99, rHi = 10; for (let k = 0; k < 100; k++) { const m = (rLo + rHi) / 2; npv(m) > 0 ? rLo = m : rHi = m; }
   const irr = rLo;
-  // Beta：每天的漲跌跟 QQQ 比
-  let beta = null; const qq = bench?.QQQ;
-  if (qq && !qq.error) {
-    const pr = []; for (let i = 1; i < all.length; i++) { const a = qq[all[i - 1].date], b = qq[all[i].date]; if (a && b) pr.push([all[i].p / all[i - 1].p - 1, b / a - 1]); }
-    if (pr.length > 20) { const mx = avg(pr.map(p => p[1])), my = avg(pr.map(p => p[0])); beta = pr.reduce((s, [r, m]) => s + (r - my) * (m - mx), 0) / pr.reduce((s, [, m]) => s + (m - mx) ** 2, 0); }
-  }
+  let beta = null;
+  if (benchOk('QQQ')) { const m = [], b = []; for (const x of rets) { const q = benchRet('QQQ', x.prev, x.date); if (q != null) { m.push(x.r); b.push(q); } } beta = betaCorr(m, b).beta; }
   const md = d => d.slice(5).replace('-', '/');
   el('sStats').innerHTML = [
     ['前一日收盤', `$${prev.p.toFixed(3)}`],
@@ -596,9 +607,14 @@ function renderStock() {
     ['Beta（對 QQQ）', beta == null ? '—' : beta.toFixed(2)],
   ].map(([k, v]) => UI.kv(k, `<span class="num">${v}</span>`)).join('');
 
+  el('sNews').innerHTML = news.length ? news.slice(0, sNewsAll ? news.length : 6).map(n => { const ch = last.p / n.q.p - 1;
+      return `<div class="s-news ${n.kind}"><div class="s-news-h"><span class="badge ${n.kind === 'note' ? 'accent' : ''}">${n.tag}</span><span class="sub">${n.date.replaceAll('-', '/')}・當天股價 $${n.q.p.toFixed(3)}</span>
+        <span class="s-news-ch num ${cls(ch)}" title="從那天收盤到現在">之後 ${pct(ch)}</span></div><div class="s-news-t">${esc(n.text)}</div></div>`; }).join('')
+      + (news.length > 6 ? `<button class="ghost s-news-more" data-snews="1">${sNewsAll ? '收起' : `顯示全部 ${news.length} 則`}</button>` : '')
+    : UI.empty('還沒有重大訊息：寫交易日記就會出現在這裡', true);
   // 股本變動：入金＝增資發行新股、出金＝買回股票（價格都是前一天收盤的每股淨值）
   const fl = externalFlows().filter(f => f.date > all[0].date).sort((a, b) => b.date.localeCompare(a.date));
-  const at = d => { const i = all.findIndex(q => q.date >= d); return i > 0 ? all[i - 1] : all[0]; };
+  const at = d => all.find(q => q.date >= d) || last;   // 入金那天收盤的股價
   const after = d => (all.find(q => q.date >= d) || last).units;
   el('sShares').innerHTML = UI.table(`<th class="l">日期</th><th class="l">事件</th><th>金額</th><th>每股價格</th><th>股數變動</th><th>變動後股數</th>`,
     fl.map(f => { const q = at(f.date), dn = f.usd / q.p;
@@ -618,7 +634,7 @@ function reviewData(y) {
   const st = realizedStats(), S = rStatement(y, st, partial ? last : null);
   const qq = bench?.QQQ, q0 = qq && !qq.error ? lastOnOrBefore(qq, p0.date) : null, q1 = q0 ? lastOnOrBefore(qq, p1.date) : null;
   // 交易次數（分割不算）
-  const tx = data.transactions.filter(t => inY(t.date) && ((t.type === 'buy' || t.type === 'sell') && !t.split || t.type === 'option'));
+  const tx = data.transactions.filter(t => inY(t.date) && ((t.type === 'buy' || t.type === 'sell') && !t.split && !isCashLike(t.symbol) || t.type === 'option'));
   const byMonth = Array.from({ length: 12 }, (_, i) => tx.filter(t => +t.date.slice(5, 7) === i + 1).length);
   const byDay = {}; for (const t of tx) byDay[t.date] = (byDay[t.date] || 0) + 1;
   const busyDay = Object.entries(byDay).sort((x, z) => z[1] - x[1])[0];
@@ -745,12 +761,14 @@ function tmItems(M, i) {
   // 那天的方塊：股票（槓桿 ETF 乘倍數）、選擇權（delta 換算）；短債 ETF（BIL、BOXX、SGOV…）當現金，不算曝險
   // total＝方塊面積加總（看空的也佔面積）；net＝看多減看空，拿來算槓桿率
   const rows = Object.entries(M.snaps[i]).map(([s, q]) => {
-    const px = tmPrice(M, s, i), v = px != null ? q * px : null, cash = grp(s) === 'CASH', lev = cash ? 0 : levOf(s);
+    const px = tmPrice(M, s, i), v = px != null ? q * px : null, cash = isCashLike(s), lev = cash ? 0 : levOf(s);
     return { s, q, v, exp: v == null ? null : v * lev, bear: lev < 0, lev, cash };
   }).filter(r => r.v == null || r.v > 0.5).sort((a, b) => (b.v ?? 0) - (a.v ?? 0));
   const opts = M.optAt(M.dates[i]).map(([s, q]) => ({ s, q, exp: tmOptExposure(M, s, q, i) }));
   const all = [...rows, ...opts].map(r => r.exp || 0);
-  return { rows, opts, total: all.reduce((a, x) => a + Math.abs(x), 0), net: all.reduce((a, x) => a + x, 0), short: all.reduce((a, x) => a + Math.min(x, 0), 0) };
+  // pos＝股票加買方選擇權（跟總覽的槓桿率同一個定義，不含賣方選擇權）
+  const pos = [...rows, ...opts.filter(o => o.q > 0)].reduce((a, r) => a + (r.exp || 0), 0);
+  return { rows, opts, pos, total: all.reduce((a, x) => a + Math.abs(x), 0), net: all.reduce((a, x) => a + x, 0), short: all.reduce((a, x) => a + Math.min(x, 0), 0) };
 }
 function tmRef(M) {
   // 整張方塊圖代表的尺度：開戶以來最大的那天（曝險或淨資產取大的）；股價載入後算一次
@@ -823,13 +841,15 @@ function tmUpdate() {
   el('tmDot').setAttribute('cx', cx); el('tmDot').setAttribute('cy', cy);
   const sh = el('tmShade'); sh.setAttribute('x', cx); sh.setAttribute('width', Math.max(0, TM.x(n - 1) - cx));
   // 那天的數字（股價載入後槓桿率用這頁算的淨曝險，跟方塊圖一致）
-  const { rows, opts, total: expTotal, net, short: expShort } = tmItems(M, i);
-  const lev = TM.prices && h.usd > 0 ? net / h.usd : h.exp != null ? h.exp / h.usd : null;
+  const { rows, opts, pos, total: expTotal, net } = tmItems(M, i);
+  // 槓桿率跟總覽一樣不含賣方選擇權；有賣方選擇權時另外寫含進去是多少
+  const lev = TM.prices && h.usd > 0 ? pos / h.usd : h.exp != null ? h.exp / h.usd : null, hasShort = opts.some(o => o.q < 0 && o.exp);
+  const levAll = TM.prices && h.usd > 0 && hasShort ? net / h.usd : null;
   el('tmStats').innerHTML = UI.tiles([
     { k: '總資產', v: usd0(h.usd) },
     { k: '投入的本金', v: usd0(p) },
     { k: '賺到的錢', v: usd0(gain, { sign: true }), vcls: `num ${cls(gain)}`, s: p > 0 ? `本金的 ${money(pct(gain / p))}` : '' },
-    { k: '槓桿率', v: lev != null ? lev.toFixed(2) + 'x' : '—' }], 'cols-2');
+    { k: '槓桿率', v: lev != null ? lev.toFixed(2) + 'x' : '—', s: levAll != null ? `含賣方選擇權 ${levAll.toFixed(2)}x` : '' }], 'cols-2');
   // 那天的持股：方塊圖＋清單
   // 方塊大小＝曝險：股票用市值、槓桿 ETF 乘倍數、選擇權用 delta 換算；短債 ETF 當現金不畫
   const stk = rows.filter(r => !r.cash), bills = rows.filter(r => r.cash);
@@ -837,7 +857,7 @@ function tmUpdate() {
   const oc = s => occ(s), short = s => { const o = oc(s); return `${o.root} ${o.exp.slice(5).replace('-', '/')} ${o.strike}${o.call ? 'C' : 'P'}`; };
   const tbox = el('tmTreemap');
   const items = [...rows.filter(r => r.exp).map(r => ({ key: r.s, v: Math.abs(r.exp), bear: r.bear, sub: r.lev !== 1 && Math.abs(r.lev) !== 1 ? `${r.lev}× 槓桿` : r.bear ? '看空' : '' })),
-                 ...opts.filter(o => o.exp).map(o => ({ key: short(o.s), v: Math.abs(o.exp), opt: true, sub: `${o.q > 0 ? '買方' : '賣方'}${o.exp < 0 ? '・看空' : ''}` }))].sort((a, b) => b.v - a.v);
+                 ...opts.filter(o => o.exp).map(o => ({ key: short(o.s), alts: [`${oc(o.s).root} ${oc(o.s).strike}${oc(o.s).call ? 'C' : 'P'}`, `${oc(o.s).root} ${oc(o.s).call ? 'C' : 'P'}`], v: Math.abs(o.exp), opt: true, sub: `${o.q > 0 ? '買方' : '賣方'}${o.exp < 0 ? '・看空' : ''}` }))].sort((a, b) => b.v - a.v);
   if (!items.length) tbox.innerHTML = UI.empty('這天沒有持股');
   else {
     const vMax = Math.max(...items.map(r => r.v)), W = tbox.clientWidth, H = tbox.clientHeight;
@@ -848,12 +868,13 @@ function tmUpdate() {
     const area = { x: 0, y: H - H * kX, w: W * kX, h: H * kX };
     tbox.innerHTML = (ref ? `<div class="tm-equity" style="left:0;top:${H - H * kE}px;width:${W * kE}px;height:${H * kE}px"><div class="tm-eq-label">淨資產 ${money(usd0(h.usd))}</div></div>` : '')
       + squarify(items, area).map(t => {
-      const mix = Math.round(14 + 66 * Math.sqrt(t.v / vMax)), big = t.w > 64 && t.h > 38, mid = t.w > 38 && t.h > 22;
+      const mix = Math.round(14 + 66 * Math.sqrt(t.v / vMax)), Lb = fitLabel([t.key, ...(t.alts || [])], t.w, t.h, t.w > 64 && t.h > 38 ? Math.min(18, 11 + Math.sqrt(t.w * t.h) / 18) : 13);
+      const showSub = Lb.text && !Lb.v && t.h - Lb.fs > 30 && t.w > 64;
       const c1 = `color-mix(in srgb, var(--accent) ${mix}%, var(--surface))`, c2 = `color-mix(in srgb, var(--accent) ${Math.max(mix - 14, 6)}%, var(--surface))`;
       const bg = t.opt ? `repeating-linear-gradient(135deg, ${c1} 0 7px, ${c2} 7px 14px)` : c1;   // 選擇權用斜線紋路
-      return `<div class="tm-tile" style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${bg};color:${mix > 55 ? '#fff' : 'var(--text)'}">
-        ${mid ? `<b style="font-size:${big ? Math.min(18, 11 + Math.sqrt(t.w * t.h) / 18) : 11}px">${esc(t.key)}</b>` : ''}${big ? `<span style="color:inherit;opacity:.85">${t.sub ? t.sub + '・' : ''}${pctPlain(t.v / h.usd, 1)}</span>` : ''}</div>`;
-    }).join('') + (TM.prices ? `<div class="tm-scale">${expShort ? `淨曝險 ${money(usd0(net))}（看多 ${money(usd0(net - expShort))}、看空 ${money(usd0(-expShort))}）` : `曝險 ${money(usd0(net))}`}・是淨資產的 ${money((lev ?? 0).toFixed(2) + ' 倍')}</div>` : '<div class="tm-loading">股價載入中，先用成交價估算</div>');
+      return `<div class="tm-tile" title="${esc(t.key)}${t.sub ? '・' + esc(t.sub) : ''}・淨資產的 ${pctPlain(t.v / h.usd, 1)}" style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;padding:${Lb.pad};background:${bg};color:${mix > 55 ? '#fff' : 'var(--text)'}">
+        ${Lb.text ? `<b class="${Lb.v ? 'vert' : ''}" style="font-size:${Lb.fs}px">${esc(Lb.text)}</b>` : ''}${showSub ? `<span style="color:inherit;opacity:.85">${t.sub ? t.sub + '・' : ''}${pctPlain(t.v / h.usd, 1)}</span>` : ''}</div>`;
+    }).join('') + (TM.prices ? `<div class="tm-scale">曝險 ${money(usd0(pos))}・是淨資產的 ${money((lev ?? 0).toFixed(2) + ' 倍')}${levAll != null ? `（含賣方選擇權 ${levAll.toFixed(2)} 倍）` : ''}</div>` : '<div class="tm-loading">股價載入中，先用成交價估算</div>');
   }
   // 清單的數字就是曝險：股票＋選擇權加起來＝淨曝險；短債另外列，不加進去
   el('tmHoldNote').innerHTML = rows.length || opts.length ? `股票曝險 ${money(usd0(tot))}${opts.length ? `・選擇權曝險 ${money(usd0(optExp, { sign: true }))}` : ''}${bills.length ? `・短債（當現金）${money(usd0(billV))}` : ''}` : '';
@@ -885,6 +906,7 @@ document.addEventListener('click', e => {
   else if (b.dataset.rk) { rKind = b.dataset.rk; rPeriod = null; renderReport(); }
   else if (b.dataset.rp) { rPeriod = b.dataset.rp; renderReport(); }
   else if (b.dataset.sr) { sRange = b.dataset.sr; renderStock(); }
+  else if (b.dataset.snews) { sNewsAll = !sNewsAll; renderStock(); }
   else if (b.dataset.wy) { wYear = b.dataset.wy; wIdx = 0; renderReview(); }
   else if (b.dataset.wn) { wIdx += +b.dataset.wn; renderReview(); }
   else if (b.dataset.wi) { wIdx = +b.dataset.wi; renderReview(); }
