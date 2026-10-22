@@ -212,13 +212,14 @@ function renderUniverse() {
 const COMPANY = 'Akira 投資';
 let rKind = 'q', rPeriod = null;
 function rPeriods(kind) {
-  const out = [];
+  // 只列已經結束的季度、年度（還沒結束的跟其他期比不出意義）
+  const out = [], last = data.history.at(-1)?.date || '';
   for (const x of data.history) {
     if (!(x.usd > 0)) continue;
     const y = x.date.slice(0, 4), k = kind === 'y' ? y : `${y}Q${Math.ceil(+x.date.slice(5, 7) / 3)}`;
     if (out.at(-1) !== k) out.push(k);
   }
-  return out;
+  return out.filter(k => rRange(k)[1] < last);
 }
 function rRange(k) {
   if (k.length === 4) return [`${k}-01-01`, `${k}-12-31`];
@@ -362,15 +363,15 @@ function rSankey(box, s, p) {
 
 function renderReport() {
   const box = el('rSankey'); if (!box) return;
-  const ps = rPeriods(rKind);
-  if (!ps.length) { box.innerHTML = UI.empty('資料還不夠'); return; }
+  const st = realizedStats();
+  const ps = rPeriods(rKind).filter(k => { const L = rStatement(k, st)?.L; return L && (L.rev > 0.5 || L.cost > 0.5 || Math.abs(L.ni) > 0.5); });   // 開戶當天那種空的期間也不列
+  if (!ps.length) { box.innerHTML = UI.empty(rKind === 'y' ? '還沒有結束的年度' : '還沒有結束的季度'); el('rTable').innerHTML = el('rRatios').innerHTML = el('rHead').innerHTML = el('rPeriods').innerHTML = ''; return; }
   if (!ps.includes(rPeriod)) rPeriod = ps.at(-1);
   el('rKind').innerHTML = UI.seg('rk', [['q', '季報'], ['y', '年報']], rKind);
   el('rPeriods').innerHTML = [...ps].reverse().map(k => `<button data-rp="${k}" class="${k === rPeriod ? 'on' : ''}">${k.length === 4 ? k : k.replace('Q', ' Q')}</button>`).join('');
-  const st = realizedStats(), s = rStatement(rPeriod, st), p = rStatement(rPrev(rPeriod), st), L = s.L, P = p?.L;
-  const md = d => `${+d.slice(5, 7)}/${+d.slice(8)}`, partial = s.end.date < s.b;
+  const s = rStatement(rPeriod, st), p = rStatement(rPrev(rPeriod), st), L = s.L, P = p?.L;
   el('rHead').innerHTML = `<div class="fs-co">${COMPANY}</div><div class="fs-title">${rName(rPeriod)}綜合損益表</div>
-    <div class="fs-sub">${s.a.replaceAll('-', '/')} – ${(partial ? s.end.date : s.b).replaceAll('-', '/')}${partial ? `（本期還沒結束，截至 ${md(s.end.date)}）` : ''}・單位：美元</div>`;
+    <div class="fs-sub">${s.start.date >= s.a ? `${s.start.date.replaceAll('-', '/')}（開戶）` : s.a.replaceAll('-', '/')} – ${s.b.replaceAll('-', '/')}・單位：美元</div>`;
   rSankey(box, s, p);
   // 綜合損益表（正式格式：費用、損失用括號）
   const ROWS = [['營業收入', null, 'h'], ['處分投資利益（股票）', 'dispG'], ['衍生工具利益（選擇權）', 'derivG'], ['股利收入', 'div'], ['利息收入', 'intInc'], ['金融資產評價利益', 'valG'], ['營業收入合計', 'rev', 't'],
