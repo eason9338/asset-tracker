@@ -1291,7 +1291,7 @@ function renderTreemap(c) {
     // 部位越大顏色越深（同一個藍色）
     const mix = Math.round(14 + 66 * Math.sqrt(t.v / vMax));
     const style = t.link ? `background:color-mix(in srgb, var(--accent) ${mix}%, var(--surface));color:${mix > 55 ? '#fff' : 'var(--text)'}` : '';
-    return `<${tag} class="tm-tile${t.link ? '' : ' gray'}${t.link && mix > 55 ? ' dark' : ''}" data-ti="${i}" ${t.link ? `href="/symbol?s=${encodeURIComponent(t.key)}"` : ''}
+    return `<${tag} class="tm-tile${t.link ? '' : t.many ? ' many' : ' gray'}${t.link && mix > 55 ? ' dark' : ''}" data-ti="${i}" ${t.link ? `href="/symbol?s=${encodeURIComponent(t.key)}"` : ''}
       style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;padding:${L.pad};${style}">
       ${L.text ? `<b class="${L.v ? 'vert' : ''}" style="font-size:${L.fs}px">${esc(L.text)}</b>` : ''}${L.text && !L.v && h - L.fs > 30 && w > 44 ? `<span>${pctPlain(t.v / base, 1)}</span>` : ''}</${tag}>`;
   }
