@@ -1,4 +1,4 @@
-// 特殊功能：交易人格報告、平行宇宙、資產時光機
+// 特殊功能：交易人格報告、平行宇宙、資產時光機、財報
 // 只讀資料不寫入；共用函式來自 analytics.js 的 window.AX 與 app.js 的全域函式
 (() => {
 'use strict';
@@ -205,6 +205,196 @@ function renderUniverse() {
   hit.addEventListener('pointerleave', () => { cx.setAttribute('visibility', 'hidden'); tip.hidden = true; });
 }
 
+// ================= 財報 =================
+// 把帳戶當成一家投資公司，照一般財報的科目編綜合損益表：
+// 賣掉的部位是「處分投資損益」、選擇權是「衍生工具損益」，還沒賣的部位照市價衡量，期間內的漲跌列「金融資產評價損益」（持有供交易的金融資產的做法）
+// 本期淨利＝期末淨資產 − 期初淨資產 − 期間的入金出金，跟「賺到的錢」對得起來；評價損益用這個總數倒算，所以每一期一定平衡
+const COMPANY = 'Akira 投資';
+let rKind = 'q', rPeriod = null;
+function rPeriods(kind) {
+  const out = [];
+  for (const x of data.history) {
+    if (!(x.usd > 0)) continue;
+    const y = x.date.slice(0, 4), k = kind === 'y' ? y : `${y}Q${Math.ceil(+x.date.slice(5, 7) / 3)}`;
+    if (out.at(-1) !== k) out.push(k);
+  }
+  return out;
+}
+function rRange(k) {
+  if (k.length === 4) return [`${k}-01-01`, `${k}-12-31`];
+  const y = k.slice(0, 4), q = +k.slice(5), m = String(q * 3).padStart(2, '0');
+  return [`${y}-${String(q * 3 - 2).padStart(2, '0')}-01`, `${y}-${m}-${q === 1 || q === 4 ? 31 : 30}`];
+}
+const rPrev = k => k.length === 4 ? String(+k - 1) : `${+k.slice(0, 4) - 1}Q${k.slice(5)}`;   // 去年同期
+const rName = k => k.length === 4 ? `${k} 年度` : `${k.slice(0, 4)} 年第${'一二三四'[+k.slice(5) - 1]}季`;
+function tradeFee(t) {
+  // 每筆成交的手續費和規費（成交金額跟成交價 × 股數的差）
+  if ((t.type === 'buy' || t.type === 'sell') && t.price) return Math.max(t.type === 'buy' ? t.total - t.shares * t.price : t.shares * t.price - t.total, 0);
+  if (t.type === 'option' && t.key && t.amount) {
+    const p = parseFloat(t.key.split('|')[4]);
+    if (p > 0) return Math.max(t.qty > 0 ? -t.amount - p * 100 * t.qty : p * 100 * -t.qty - t.amount, 0);
+  }
+  return 0;
+}
+function rStatement(k, st) {
+  const [a, b] = rRange(k), hist = data.history.filter(x => x.usd > 0), inP = d => d >= a && d <= b;
+  const end = hist.filter(x => x.date <= b).at(-1);
+  if (!end || end.date < a) return null;
+  const start = hist.filter(x => x.date < a).at(-1) || hist[0];
+  const flows = externalFlows().filter(f => f.date > start.date && f.date <= end.date).reduce((s, f) => s + f.usd, 0);
+  const s = { k, a, b, start, end, ni: end.usd - start.usd - flows, stocks: {}, opt: { short: 0, long: 0 }, fees: 0, div: 0, intInc: 0, intExp: 0, refund: 0, outside: 0 };
+  for (const t of data.transactions) {
+    if (!inP(t.date)) continue;
+    const fee = tradeFee(t); s.fees += fee;
+    // 處分損益用扣手續費前的金額，手續費另外列在營業費用
+    if (t.type === 'sell' && st.perSell[t.id] != null) s.stocks[t.symbol] = (s.stocks[t.symbol] || 0) + st.perSell[t.id] + fee;
+    else if (t.type === 'option' && st.perOpt[t.id] != null) s.opt[t.qty > 0 ? 'short' : 'long'] += st.perOpt[t.id] + fee;
+    else if ((t.type === 'income' || t.type === 'expense') && t.currency === 'USD') {
+      const v = (t.type === 'income' ? 1 : -1) * t.amount, c = t.category || '';
+      if (c.startsWith('股息')) s.div += v;
+      else if (c.startsWith('退稅')) s.refund += v;
+      else if (c.startsWith('利息支出')) s.intExp -= v;
+      else if (c.startsWith('利息')) s.intInc += v;
+      else if (c.startsWith('帳外獲利')) s.outside += v;
+    }
+  }
+  for (const e of st.expiries) if (inP(e.date)) s.opt[e.qty < 0 ? 'long' : 'short'] += e.realized;   // 到期失效
+  const realized = Object.values(s.stocks).reduce((x, v) => x + v, 0) + s.opt.short + s.opt.long;
+  s.val = s.ni - (realized - s.fees + s.div + s.intInc - s.intExp + s.refund + s.outside);
+  // 各科目
+  const pos = x => Math.max(x, 0), neg = x => Math.max(-x, 0), sv = Object.values(s.stocks);
+  const L = s.L = { dispG: sv.reduce((x, v) => x + pos(v), 0), derivG: pos(s.opt.short) + pos(s.opt.long), div: s.div, intInc: s.intInc, valG: pos(s.val),
+    dispL: sv.reduce((x, v) => x + neg(v), 0), derivL: neg(s.opt.short) + neg(s.opt.long), valL: neg(s.val),
+    fees: s.fees, outside: s.outside, intExp: s.intExp, refund: s.refund };
+  L.rev = L.dispG + L.derivG + L.div + L.intInc + L.valG;
+  L.cost = L.dispL + L.derivL + L.valL;
+  L.gp = L.rev - L.cost; L.op = L.gp - L.fees; L.pre = L.op + L.outside - L.intExp; L.ni = L.pre + L.refund;
+  L.roe = s.ni / ((start.usd + end.usd) / 2);
+  return s;
+}
+const rNum = v => Math.abs(v) < 0.5 ? '—' : v < 0 ? `(${Math.round(-v).toLocaleString('en-US')})` : Math.round(v).toLocaleString('en-US');
+const rYoY = (cur, prev) => prev == null || Math.abs(prev) < 1 ? null : (cur - prev) / Math.abs(prev);
+// 年增率的寫法跟財報一樣：正負號相反寫「轉盈／轉虧」，去年太小（變動 10 倍以上）不寫百分比
+const rYoYFmt = (cur, prev) => {
+  const y = rYoY(cur, prev); if (y == null) return null;
+  if (prev < 0 && cur > 0) return '轉盈'; if (prev > 0 && cur < 0) return '轉虧';
+  if (Math.abs(y) >= 10) return y > 0 ? '10 倍以上' : '−90% 以上';
+  return `${y >= 0 ? '+' : ''}${Math.round(y * 100)}%`;
+};
+const rYoYText = (cur, prev) => { const y = rYoYFmt(cur, prev); return y == null ? '' : `年增 ${y}`; };
+
+function rSankey(box, s, p) {
+  // 從左到右：收入來源 → 營業收入 → 毛利／成本 → 營業利益／費用 → 淨利（附圖那種公司財報流向圖）
+  const L = s.L, B = 'var(--accent)', G = 'var(--up)', R = 'var(--down)', P = p?.L;
+  const nodes = [], links = [], N = (id, col, v, color, name, sub = '') => { if (v > 0.5) nodes.push({ id, col, v, color, name, sub }); };
+  const link = (a, b, v) => { if (v > 0.5 && nodes.some(n => n.id === a) && nodes.some(n => n.id === b)) links.push({ a, b, v }); };
+  // 收入來源：賺錢的股票前 4 檔、其他合併；選擇權分賣方和買方
+  const winners = Object.entries(s.stocks).filter(([, v]) => v > 0.5).sort((x, y) => y[1] - x[1]);
+  const top = winners.slice(0, 4), rest = winners.slice(4).reduce((x, [, v]) => x + v, 0);
+  for (const [sym, v] of top) N('s:' + sym, 0, v, B, sym);
+  N('s:rest', 0, rest, B, `其他 ${winners.length - 4} 檔`);
+  N('o:short', 0, Math.max(s.opt.short, 0), B, '選擇權賣方'); N('o:long', 0, Math.max(s.opt.long, 0), B, '選擇權買方');
+  N('dispG', 1, L.dispG, B, '處分投資利益', rYoYText(L.dispG, P?.dispG)); N('derivG', 1, L.derivG, B, '衍生工具利益', rYoYText(L.derivG, P?.derivG));
+  N('div', 1, L.div, B, '股利收入'); N('intInc', 1, L.intInc, B, '利息收入'); N('valG', 1, L.valG, B, '評價利益', '還沒賣的部位');
+  for (const [sym] of top) link('s:' + sym, 'dispG', s.stocks[sym]);
+  link('s:rest', 'dispG', rest); link('o:short', 'derivG', s.opt.short); link('o:long', 'derivG', s.opt.long);
+  const pct = v => L.rev > 0 ? Math.round(v / L.rev * 100) + '%' : '';
+  N('rev', 2, L.rev, B, '營業收入', rYoYText(L.rev, P?.rev));
+  for (const id of ['dispG', 'derivG', 'div', 'intInc', 'valG']) link(id, 'rev', L[id]);
+  const leaves = c => { N('dispL', c, L.dispL, R, '處分投資損失'); N('derivL', c, L.derivL, R, '衍生工具損失'); N('valL', c, L.valL, R, '評價損失', '還沒賣的部位'); for (const id of ['dispL', 'derivL', 'valL']) link('cost', id, L[id]); };
+  const profit = L.gp > 0 && L.op >= L.intExp && L.ni > 0 && L.outside >= 0 && L.refund >= 0;
+  if (profit) {
+    N('gp', 3, L.gp, G, '營業毛利', `毛利率 ${pct(L.gp)}${P ? '・' + rYoYText(L.gp, P.gp) : ''}`); N('cost', 3, L.cost, R, '營業成本');
+    link('rev', 'gp', L.gp); link('rev', 'cost', L.cost);
+    N('op', 4, L.op, G, '營業利益', `營業利益率 ${pct(L.op)}`);
+    N('outside', 4, L.outside, G, '其他收入'); N('refund', 4, L.refund, G, '所得稅利益');
+    N('fees', 4, L.fees, R, '營業費用', '手續費、規費');
+    link('gp', 'op', L.op); link('gp', 'fees', L.fees);
+    leaves(4);
+    N('ni', 5, L.ni, G, '本期淨利', `淨利率 ${pct(L.ni)}${P ? '・' + rYoYText(L.ni, P.ni) : ''}`); N('intExp', 5, L.intExp, R, '利息費用', '融資');
+    link('op', 'ni', L.op - L.intExp); link('op', 'intExp', L.intExp); link('outside', 'ni', L.outside); link('refund', 'ni', L.refund);
+  } else {
+    // 虧損（或毛利不夠付費用）：缺的部分由淨資產吸收，畫成一條紅色的「本期淨損」流進去
+    N('outside', 2, Math.max(L.outside, 0), G, '其他收入'); N('refund', 2, Math.max(L.refund, 0), G, '所得稅利益');
+    N('loss', 2, Math.max(-L.ni, 0), R, '本期淨損', `由淨資產吸收${P ? '・去年同期 ' + (P.ni >= 0 ? '淨利 ' : '淨損 ') + usd0(Math.abs(P.ni)) : ''}`);
+    N('cost', 3, L.cost, R, '營業成本'); N('fees', 3, L.fees, R, '營業費用', '手續費、規費'); N('intExp', 3, L.intExp, R, '利息費用', '融資');
+    N('otherL', 3, Math.max(-L.outside, 0) + Math.max(-L.refund, 0), R, '其他損失'); N('ni', 3, Math.max(L.ni, 0), G, '本期淨利');
+    leaves(4);
+    // 來源依序填進各個去處
+    const src = ['rev', 'outside', 'refund', 'loss'].map(id => [id, nodes.find(n => n.id === id)?.v || 0]);
+    for (const id of ['cost', 'fees', 'intExp', 'otherL', 'ni']) {
+      let need = nodes.find(n => n.id === id)?.v || 0;
+      for (const x of src) { const take = Math.min(need, x[1]); if (take > 0.5) link(x[0], id, take); x[1] -= take; need -= take; if (need <= 0.5) break; }
+    }
+  }
+  // 版面：每欄由上往下排，置中；節點高度跟金額成正比
+  const W = box.clientWidth, H = box.clientHeight, padT = 44, padB = 16, gap = 46, nw = 14, lm = 150, rm = 190;
+  const cols = Math.max(...nodes.map(n => n.col)) + 1, byCol = Array.from({ length: cols }, (_, c) => nodes.filter(n => n.col === c));
+  const k = Math.min(...byCol.filter(c => c.length).map(c => (H - padT - padB - gap * (c.length - 1)) / c.reduce((x, n) => x + n.v, 0)));
+  const xOf = c => lm + c * (W - lm - rm - nw) / Math.max(cols - 1, 1);
+  for (const c of byCol) {
+    const tot = c.reduce((x, n) => x + Math.max(n.v * k, 2), 0) + gap * (c.length - 1);
+    let y = padT + (H - padT - padB - tot) / 2;
+    for (const n of c) { n.x = xOf(n.col); n.y = y; n.h = Math.max(n.v * k, 2); y += n.h + gap; n.outY = n.y; n.inY = n.y; }
+  }
+  const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+  for (const l of links) { l.s = byId[l.a]; l.t = byId[l.b]; l.w = l.v * k; }
+  for (const n of nodes) {
+    for (const l of links.filter(l => l.s === n).sort((x, y) => x.t.y - y.t.y)) { l.y0 = n.outY; n.outY += l.w; }
+    for (const l of links.filter(l => l.t === n).sort((x, y) => x.s.y - y.s.y)) { l.y1 = n.inY; n.inY += l.w; }
+  }
+  const band = l => { const x0 = l.s.x + nw, x1 = l.t.x, xm = (x0 + x1) / 2;
+    return `M${x0},${l.y0}C${xm},${l.y0} ${xm},${l.y1} ${x1},${l.y1}L${x1},${l.y1 + l.w}C${xm},${l.y1 + l.w} ${xm},${l.y0 + l.w} ${x0},${l.y0 + l.w}Z`; };
+  const hasOut = new Set(links.map(l => l.a));
+  const label = n => {
+    const name = `<tspan font-weight="700" fill="${n.color}">${esc(n.name)}</tspan>`, amt = `<tspan class="sk-amt">${usd0(n.v)}</tspan>`;
+    if (n.col === 0) return `<text x="${n.x - 8}" y="${n.y + n.h / 2 - 2}" text-anchor="end">${name}<tspan x="${n.x - 8}" dy="15" class="sk-amt">${usd0(n.v)}</tspan></text>`;
+    if (!hasOut.has(n.id)) return `<text x="${n.x + nw + 8}" y="${n.y + n.h / 2 - (n.sub ? 8 : 2)}">${name}<tspan x="${n.x + nw + 8}" dy="15">${amt}</tspan>${n.sub ? `<tspan x="${n.x + nw + 8}" dy="14" class="sk-sub">${esc(n.sub)}</tspan>` : ''}</text>`;
+    const cx = n.x + nw / 2;
+    return `<text x="${cx}" y="${n.y - (n.sub ? 22 : 8)}" text-anchor="middle">${name} ${amt}${n.sub ? `<tspan x="${cx}" dy="14" class="sk-sub">${esc(n.sub)}</tspan>` : ''}</text>`;
+  };
+  box.innerHTML = nodes.length ? `<svg viewBox="0 0 ${W} ${H}" class="sankey">
+    ${links.map(l => `<path d="${band(l)}" fill="${l.t.color}" opacity=".28"><title>${esc(l.s.name)} → ${esc(l.t.name)}：${usd0(l.v)}</title></path>`).join('')}
+    ${nodes.map(n => `<rect x="${n.x}" y="${n.y}" width="${nw}" height="${n.h}" fill="${n.color}" rx="2"/>`).join('')}
+    ${nodes.map(label).join('')}
+  </svg>` : UI.empty('這段期間沒有損益');
+}
+
+function renderReport() {
+  const box = el('rSankey'); if (!box) return;
+  const ps = rPeriods(rKind);
+  if (!ps.length) { box.innerHTML = UI.empty('資料還不夠'); return; }
+  if (!ps.includes(rPeriod)) rPeriod = ps.at(-1);
+  el('rKind').innerHTML = UI.seg('rk', [['q', '季報'], ['y', '年報']], rKind);
+  el('rPeriods').innerHTML = [...ps].reverse().map(k => `<button data-rp="${k}" class="${k === rPeriod ? 'on' : ''}">${k.length === 4 ? k : k.replace('Q', ' Q')}</button>`).join('');
+  const st = realizedStats(), s = rStatement(rPeriod, st), p = rStatement(rPrev(rPeriod), st), L = s.L, P = p?.L;
+  const md = d => `${+d.slice(5, 7)}/${+d.slice(8)}`, partial = s.end.date < s.b;
+  el('rHead').innerHTML = `<div class="fs-co">${COMPANY}</div><div class="fs-title">${rName(rPeriod)}綜合損益表</div>
+    <div class="fs-sub">${s.a.replaceAll('-', '/')} – ${(partial ? s.end.date : s.b).replaceAll('-', '/')}${partial ? `（本期還沒結束，截至 ${md(s.end.date)}）` : ''}・單位：美元</div>`;
+  rSankey(box, s, p);
+  // 綜合損益表（正式格式：費用、損失用括號）
+  const ROWS = [['營業收入', null, 'h'], ['處分投資利益（股票）', 'dispG'], ['衍生工具利益（選擇權）', 'derivG'], ['股利收入', 'div'], ['利息收入', 'intInc'], ['金融資產評價利益', 'valG'], ['營業收入合計', 'rev', 't'],
+    ['營業成本', null, 'h'], ['處分投資損失（股票）', 'dispL', '', -1], ['衍生工具損失（選擇權）', 'derivL', '', -1], ['金融資產評價損失', 'valL', '', -1], ['營業成本合計', 'cost', 't', -1],
+    ['營業毛利', 'gp', 'T'], ['營業費用', null, 'h'], ['手續費及交易規費', 'fees', '', -1], ['營業利益', 'op', 'T'],
+    ['營業外收入及支出', null, 'h'], ['其他收入（帳外獲利）', 'outside'], ['利息費用（融資）', 'intExp', '', -1], ['稅前淨利', 'pre', 'T'],
+    ['所得稅利益（股利預扣稅退還）', 'refund'], ['本期淨利（淨損）', 'ni', 'N']];
+  const cell = (Lx, key, sign) => { const v = (Lx?.[key] ?? 0) * (sign || 1); return `<td class="num">${Lx ? rNum(v) : '—'}</td><td class="num muted">${Lx && Lx.rev > 0 && Math.abs(v) >= 0.5 ? Math.round(v / Lx.rev * 100) + '%' : ''}</td>`; };
+  const rows = ROWS.filter(([, key, kind]) => !key || kind || Math.abs(L[key]) >= 0.5 || (P && Math.abs(P[key]) >= 0.5)).map(([name, key, kind = '', sign]) => {
+    if (!key) return `<tr class="fs-h"><td colspan="6">${name}</td></tr>`;
+    const y = rYoYFmt(L[key], P?.[key]);
+    return `<tr class="fs-${kind || 'i'}"><td class="l">${name}</td>${cell(L, key, sign)}${cell(P, key, sign)}<td class="num ${y == null ? 'muted' : ''}">${y ?? '—'}</td></tr>`;
+  }).join('');
+  el('rTable').innerHTML = `<div class="table-wrap"><table class="table fs-table"><thead><tr><th class="l">會計項目</th><th>${rName(rPeriod)}</th><th>%</th><th>${rName(rPrev(rPeriod))}</th><th>%</th><th>年增率</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const pctOf = v => L.rev > 0 ? pctPlain(v / L.rev, 1) : '—';
+  el('rRatios').innerHTML = UI.tiles([
+    { k: '營業收入', v: usd0(L.rev), s: rYoYText(L.rev, P?.rev) || '去年同期沒有資料' },
+    { k: '本期淨利', v: usd0(L.ni, { sign: true }), vcls: `num ${cls(L.ni)}`, s: rYoYText(L.ni, P?.ni) || '去年同期沒有資料' },
+    { k: '毛利率', v: pctOf(L.gp), s: P && P.rev > 0 ? `去年同期 ${pctPlain(P.gp / P.rev, 1)}` : '' },
+    { k: '營業利益率', v: pctOf(L.op), s: P && P.rev > 0 ? `去年同期 ${pctPlain(P.op / P.rev, 1)}` : '' },
+    { k: '淨利率', v: pctOf(L.ni), s: P && P.rev > 0 ? `去年同期 ${pctPlain(P.ni / P.rev, 1)}` : '' },
+    { k: '股東權益報酬率', v: pct(L.roe), vcls: `num ${cls(L.roe)}`, s: '淨利 ÷ 平均淨資產' }], 'cols-2');
+}
+
 // ================= 資產時光機 =================
 const TM = { i: null, playing: null, prices: null, loading: false, built: false, speed: 1 };
 function tmModel() {
@@ -396,11 +586,13 @@ function tmUpdate() {
 }
 
 // ================= 掛到畫面更新與事件 =================
-window.EXTRA_PARTS = [['personaBox', renderPersona], ['universeChart', renderUniverse], ['tmControls', tmUpdate]];
+window.EXTRA_PARTS = [['personaBox', renderPersona], ['universeChart', renderUniverse], ['tmControls', tmUpdate], ['rSankey', renderReport]];
 document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.py) { pYear = b.dataset.py; renderPersona(); }
   else if (b.dataset.ur) { uRange = b.dataset.ur; renderUniverse(); }
+  else if (b.dataset.rk) { rKind = b.dataset.rk; rPeriod = null; renderReport(); }
+  else if (b.dataset.rp) { rPeriod = b.dataset.rp; renderReport(); }
   else if (b.dataset.tm === 'play') tmPlay(!TM.playing);
   else if (b.dataset.tm) { tmPlay(false); tmGo(TM.i + +b.dataset.tm); }
   else if (b.dataset.tmj != null) { tmPlay(false); tmGo(+b.dataset.tmj); }
