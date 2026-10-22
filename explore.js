@@ -523,14 +523,14 @@ function renderStock() {
   if (live) all[all.length - 1] = { ...all.at(-1), usd: c.totalUSD, p: c.totalUSD / all.at(-1).units };
   const last = all.at(-1), prev = all.at(-2), chg = last.p - prev.p, sess = live ? marketSession() : '';
   el('sQuote').innerHTML = `<div class="s-name"><b>${TICKER}</b><span>${COMPANY}・虛擬上市</span></div>
-    <div class="s-price num">$${last.p.toFixed(2)}</div>
-    <div class="s-chg num ${cls(chg)}">${chg >= 0 ? '+' : '−'}${Math.abs(chg).toFixed(2)}（${pct(chg / prev.p)}）<span class="sub">${sess ? `今日・${sess}・${lastUpdate.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}` : `今日・${last.date.slice(5).replace('-', '/')} 收盤`}</span></div>`;
+    <div class="s-price num">$${last.p.toFixed(3)}</div>
+    <div class="s-chg num ${cls(chg)}">${chg >= 0 ? '+' : '−'}${Math.abs(chg).toFixed(3)}（${pct(chg / prev.p)}）<span class="sub">${sess ? `今日・${sess}・${lastUpdate.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}` : `今日・${last.date.slice(5).replace('-', '/')} 收盤`}</span></div>`;
   el('sRange').innerHTML = UI.seg('sr', [['30', '1月'], ['91', '3月'], ['ytd', '今年'], ['365', '1年'], ['all', '全部']], sRange);
   // 走勢：選的區間漲就用漲色、跌就用跌色（像看盤軟體）
   const from = sRange === 'all' ? '' : sRange === 'ytd' ? last.date.slice(0, 4) + '-01-01' : addDays(last.date, -+sRange);
   const pts = all.filter(x => x.date >= from);
   const base = all.filter(x => x.date < from).at(-1) || pts[0], rc = last.p - base.p, color = rc >= 0 ? 'var(--up)' : 'var(--down)';
-  el('sRangeChg').innerHTML = `區間漲跌 <b class="num ${cls(rc)}">${rc >= 0 ? '+' : '−'}$${Math.abs(rc).toFixed(2)}（${pct(rc / base.p)}）</b>`;
+  el('sRangeChg').innerHTML = `區間漲跌 <b class="num ${cls(rc)}">${rc >= 0 ? '+' : '−'}$${Math.abs(rc).toFixed(3)}（${pct(rc / base.p)}）</b>`;
   const W = box.clientWidth, H = box.clientHeight, padL = 52, padR = 12, padT = 12, padB = 24;
   const vals = pts.map(x => x.p).concat(sRange === 'all' ? [10] : []);
   let min = Math.min(...vals), max = Math.max(...vals); const pad = (max - min) * 0.08 || 0.5; min -= pad; max += pad;
@@ -538,7 +538,7 @@ function renderStock() {
   const line = pts.map((q, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(q.p).toFixed(1)).join('');
   const ticks = [0, 0.5, 1].map(f => min + (max - min) * f);
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
-    ${ticks.map(t => `<line x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" stroke-dasharray="2 4"/><text class="axis-text" x="${padL - 8}" y="${y(t) + 4}" text-anchor="end">$${t.toFixed(2)}</text>`).join('')}
+    ${ticks.map(t => `<line x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" stroke-dasharray="2 4"/><text class="axis-text" x="${padL - 8}" y="${y(t) + 4}" text-anchor="end">$${t.toFixed(3)}</text>`).join('')}
     ${sRange === 'all' ? `<line x1="${padL}" x2="${W - padR}" y1="${y(10)}" y2="${y(10)}" stroke="var(--text-3)" stroke-dasharray="5 4"/><text class="axis-text" x="${W - padR}" y="${y(10) - 5}" text-anchor="end">發行價 $10</text>` : ''}
     <path d="${line}L${x(n - 1)},${H - padB}L${x(0)},${H - padB}Z" fill="${color}" opacity=".08"/>
     <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>
@@ -552,7 +552,7 @@ function renderStock() {
     for (const [a, v] of [['x1', x(i)], ['x2', x(i)]]) cx.setAttribute(a, v);
     cx.setAttribute('visibility', 'visible'); dot.setAttribute('cx', x(i)); dot.setAttribute('cy', y(q.p)); dot.setAttribute('visibility', 'visible');
     tip.hidden = false; tip.style.left = x(i) + 'px'; tip.style.top = padT + 'px'; tip.style.transform = x(i) > W / 2 ? 'translate(calc(-100% - 10px), 0)' : 'translate(10px, 0)';
-    tip.innerHTML = `<div style="margin-bottom:3px">${q.date}</div><div class="row"><span>股價</span><b>$${q.p.toFixed(2)}</b></div><div class="row"><span>區間漲跌</span><b>${pct(d / base.p)}</b></div>`;
+    tip.innerHTML = `<div style="margin-bottom:3px">${q.date}</div><div class="row"><span>股價</span><b>$${q.p.toFixed(3)}</b></div><div class="row"><span>區間漲跌</span><b>${pct(d / base.p)}</b></div>`;
   });
   hit.addEventListener('pointerleave', () => { cx.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); tip.hidden = true; });
 
@@ -567,6 +567,11 @@ function renderStock() {
   const vol = Math.sqrt(rets.reduce((a, r) => a + (r - avg(rets)) ** 2, 0) / (rets.length - 1) * 252);
   let peak = 0, mdd = 0; for (const q of all) { peak = Math.max(peak, q.p); mdd = Math.min(mdd, q.p / peak - 1); }
   const years = days(all[0].date, last.date) / 365, cagr = (last.p / 10) ** (1 / years) - 1;
+  // 金額加權年化報酬（XIRR）：把開戶資產、每筆入金出金和現在的總資產當現金流，算出讓淨現值為 0 的報酬率；入金的時機會影響它
+  const cf = [{ d: all[0].date, v: -all[0].usd }, ...externalFlows().filter(f => f.date > all[0].date && f.date <= last.date).map(f => ({ d: f.date, v: -f.usd })), { d: last.date, v: last.usd }];
+  const npv = r => cf.reduce((s, f) => s + f.v / (1 + r) ** (days(all[0].date, f.d) / 365), 0);
+  let rLo = -0.99, rHi = 10; for (let k = 0; k < 100; k++) { const m = (rLo + rHi) / 2; npv(m) > 0 ? rLo = m : rHi = m; }
+  const irr = rLo;
   // Beta：每天的漲跌跟 QQQ 比
   let beta = null; const qq = bench?.QQQ;
   if (qq && !qq.error) {
@@ -575,16 +580,17 @@ function renderStock() {
   }
   const md = d => d.slice(5).replace('-', '/');
   el('sStats').innerHTML = [
-    ['前一日收盤', `$${prev.p.toFixed(2)}`],
+    ['前一日收盤', `$${prev.p.toFixed(3)}`],
     ['市值', usd0(last.usd)],
     ['流通在外股數', `${Math.round(last.units).toLocaleString('en-US')} 股`],
-    ['52 週最高', `$${hi.p.toFixed(2)} <span class="muted">${md(hi.date)}</span>`],
-    ['52 週最低', `$${lo.p.toFixed(2)} <span class="muted">${md(lo.date)}</span>`],
-    ['歷史最高', `$${ath.p.toFixed(2)} <span class="muted">${ath.date.replaceAll('-', '/')}</span>`],
+    ['52 週最高', `$${hi.p.toFixed(3)} <span class="muted">${md(hi.date)}</span>`],
+    ['52 週最低', `$${lo.p.toFixed(3)} <span class="muted">${md(lo.date)}</span>`],
+    ['歷史最高', `$${ath.p.toFixed(3)} <span class="muted">${ath.date.replaceAll('-', '/')}</span>`],
     ['距離歷史最高', `<span class="${cls(last.p / ath.p - 1)}">${pct(last.p / ath.p - 1)}</span>`],
     ['近四季 EPS', `${ttm < 0 ? '−' : ''}$${Math.abs(ttm).toFixed(2)}`],
     ['本益比', ttm > 0 ? (last.p / ttm).toFixed(1) + ' 倍' : '—（虧損）'],
-    ['成立以來年化報酬', `<span class="${cls(cagr)}">${pct(cagr)}</span>`],
+    ['年化報酬（股價）', `<span class="${cls(cagr)}">${pct(cagr)}</span>`],
+    ['年化報酬（金額加權）', `<span class="${cls(irr)}">${pct(irr)}</span>`],
     ['年化波動率', pctPlain(vol, 1)],
     ['最大回撤', `<span class="down">${pct(mdd)}</span>`],
     ['Beta（對 QQQ）', beta == null ? '—' : beta.toFixed(2)],
@@ -596,8 +602,8 @@ function renderStock() {
   const after = d => (all.find(q => q.date >= d) || last).units;
   el('sShares').innerHTML = UI.table(`<th class="l">日期</th><th class="l">事件</th><th>金額</th><th>每股價格</th><th>股數變動</th><th>變動後股數</th>`,
     fl.map(f => { const q = at(f.date), dn = f.usd / q.p;
-      return `<tr><td class="l">${f.date.replaceAll('-', '/')}</td><td class="l">${f.usd >= 0 ? '增資（入金）' : '買回（出金）'}</td><td class="num">${usd0(Math.abs(f.usd))}</td><td class="num">$${q.p.toFixed(2)}</td><td class="num ${dn >= 0 ? '' : 'down'}">${dn >= 0 ? '+' : '−'}${Math.abs(dn).toFixed(1)}</td><td class="num">${Math.round(after(f.date)).toLocaleString('en-US')}</td></tr>`; }).join('')
-    + `<tr><td class="l">${all[0].date.replaceAll('-', '/')}</td><td class="l">開戶發行</td><td class="num">${usd0(all[0].usd)}</td><td class="num">$10.00</td><td class="num">+${all[0].units.toFixed(1)}</td><td class="num">${Math.round(all[0].units).toLocaleString('en-US')}</td></tr>`);
+      return `<tr><td class="l">${f.date.replaceAll('-', '/')}</td><td class="l">${f.usd >= 0 ? '增資（入金）' : '買回（出金）'}</td><td class="num">${usd0(Math.abs(f.usd))}</td><td class="num">$${q.p.toFixed(3)}</td><td class="num ${dn >= 0 ? '' : 'down'}">${dn >= 0 ? '+' : '−'}${Math.abs(dn).toFixed(1)}</td><td class="num">${Math.round(after(f.date)).toLocaleString('en-US')}</td></tr>`; }).join('')
+    + `<tr><td class="l">${all[0].date.replaceAll('-', '/')}</td><td class="l">開戶發行</td><td class="num">${usd0(all[0].usd)}</td><td class="num">$10.000</td><td class="num">+${all[0].units.toFixed(1)}</td><td class="num">${Math.round(all[0].units).toLocaleString('en-US')}</td></tr>`);
 }
 
 // ================= 年度回顧 =================
