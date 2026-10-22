@@ -494,6 +494,15 @@ a.sym-link:hover { color: var(--accent); text-decoration: underline; }
 .fs-sub { font-size: var(--fs-sm); color: var(--text-3); margin-top: 4px; }
 .chart-box.report-sankey { height: 540px; }
 .sankey text { font-size: 12px; fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }   /* 文字描一圈底色，壓在流向帶上也看得清楚 */
+.fs-table tr.fs-E td { color: var(--text-2); border-bottom: none; }
+.r-trend { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.r-trend .legend:empty { display: block; min-height: 20px; margin-bottom: 10px; }
+.chart-box.r-chart { height: 220px; position: relative; }
+.r-bar { opacity: .35; transition: opacity .12s; }
+.r-bar.on, .r-bar.hl { opacity: 1; }
+.r-val { font-size: 12px; font-weight: 600; fill: var(--text); }
+.r-chart .axis-text.on { fill: var(--accent); font-weight: 700; }
+.r-hit { cursor: pointer; }
 .fs-points { margin: 0; padding-left: 18px; display: grid; gap: 8px; font-size: var(--fs-md); line-height: 1.6; color: var(--text-2); }
 .sankey .sk-amt { fill: var(--text-2); }
 .sankey .sk-sub { fill: var(--text-3); font-size: 11px; }

@@ -226,6 +226,22 @@ function rRange(k) {
   const y = k.slice(0, 4), q = +k.slice(5), m = String(q * 3).padStart(2, '0');
   return [`${y}-${String(q * 3 - 2).padStart(2, '0')}-01`, `${y}-${m}-${q === 1 || q === 4 ? 31 : 30}`];
 }
+function rUnits() {
+  // 股數：開戶那天每股 $10 發行；之後入金照前一天收盤的每股淨值增發新股、出金照每股淨值買回（跟基金的單位一樣，股價就是時間加權報酬）
+  if (rUnits.c && rUnits.n === data.history.length) return rUnits.c;
+  const hist = data.history.filter(x => x.usd > 0), flows = externalFlows().sort((a, b) => a.date.localeCompare(b.date)), out = {};
+  if (!hist.length) return out;
+  let units = hist[0].usd / 10, j = 0;
+  while (j < flows.length && flows[j].date <= hist[0].date) j++;
+  out[hist[0].date] = units;
+  for (let i = 1; i < hist.length; i++) {
+    const nav = hist[i - 1].usd / units;
+    while (j < flows.length && flows[j].date <= hist[i].date) { units += flows[j].usd / nav; j++; }
+    out[hist[i].date] = units;
+  }
+  rUnits.c = out; rUnits.n = data.history.length;
+  return out;
+}
 const rPrev = k => k.length === 4 ? String(+k - 1) : `${+k.slice(0, 4) - 1}Q${k.slice(5)}`;   // 去年同期
 const rName = k => k.length === 4 ? `${k} 年度` : `${k.slice(0, 4)} 年第${'一二三四'[+k.slice(5) - 1]}季`;
 function tradeFee(t) {
@@ -271,18 +287,21 @@ function rStatement(k, st, upTo = null) {
   L.cost = L.dispL + L.derivL + L.valL;
   L.gp = L.rev - L.cost; L.op = L.gp - L.fees; L.pre = L.op + L.outside - L.intExp; L.ni = L.pre + L.refund;
   L.roe = s.ni / ((start.usd + end.usd) / 2);
+  // 基本每股盈餘＝淨利 ÷ 期間加權平均股數
+  const U = rUnits(), us = hist.filter(x => x.date > start.date && x.date <= end.date).map(x => U[x.date]);
+  L.eps = us.length ? s.ni / avg(us) : 0; L.bvps = end.usd / U[end.date];
   return s;
 }
 const rNum = v => Math.abs(v) < 0.5 ? '—' : v < 0 ? `(${Math.round(-v).toLocaleString('en-US')})` : Math.round(v).toLocaleString('en-US');
-const rYoY = (cur, prev) => prev == null || Math.abs(prev) < 1 ? null : (cur - prev) / Math.abs(prev);
+const rYoY = (cur, prev, min = 1) => prev == null || Math.abs(prev) < min ? null : (cur - prev) / Math.abs(prev);
 // 年增率的寫法跟財報一樣：正負號相反寫「轉盈／轉虧」，去年太小（變動 10 倍以上）不寫百分比
-const rYoYFmt = (cur, prev) => {
-  const y = rYoY(cur, prev); if (y == null) return null;
+const rYoYFmt = (cur, prev, min = 1) => {
+  const y = rYoY(cur, prev, min); if (y == null) return null;
   if (prev < 0 && cur > 0) return '轉盈'; if (prev > 0 && cur < 0) return '轉虧';
   if (Math.abs(y) >= 10) return y > 0 ? '10 倍以上' : '−90% 以上';
   return `${y >= 0 ? '+' : ''}${Math.round(y * 100)}%`;
 };
-const rYoYText = (cur, prev) => { const y = rYoYFmt(cur, prev); return y == null ? '' : `年增 ${y}`; };
+const rYoYText = (cur, prev, min = 1) => { const y = rYoYFmt(cur, prev, min); return y == null ? '' : `年增 ${y}`; };
 
 function rSankey(box, s, p) {
   // 從左到右：收入來源 → 營業收入 → 毛利／成本 → 營業利益／費用 → 淨利（附圖那種公司財報流向圖）
@@ -307,7 +326,7 @@ function rSankey(box, s, p) {
   if (profit) {
     N('gp', 3, L.gp, G, '營業毛利', `毛利率 ${pct(L.gp)}${P ? '・' + rYoYText(L.gp, P.gp) : ''}`); N('cost', 3, L.cost, R, '營業成本');
     link('rev', 'gp', L.gp); link('rev', 'cost', L.cost);
-    N('op', 4, L.op, G, '營業利益', `營業利益率 ${pct(L.op)}`);
+    N('op', 4, L.op, G, '營業利益');
     N('outside', 4, L.outside, G, '其他收入', '帳外獲利'); N('refund', 4, L.refund, G, '所得稅利益', '預扣稅退還');
     N('fees', 4, L.fees, R, '營業費用', '手續費、規費');
     link('gp', 'op', L.op); link('gp', 'fees', L.fees);
@@ -361,6 +380,61 @@ function rSankey(box, s, p) {
   </svg>` : UI.empty('這段期間沒有損益');
 }
 
+function rTrend(ps, st) {
+  // 每一期的營業收入（長條）和毛利率、淨利率（折線）；兩種單位分成兩張圖，不共用座標軸
+  const rows = ps.map(k => { const last = data.history.at(-1).date, partial = rRange(k)[1] >= last, L = rStatement(k, st, partial ? last : null).L;
+    return { k, partial, rev: L.rev, gm: L.rev > 0 ? L.gp / L.rev : null, nm: L.rev > 0 ? L.ni / L.rev : null }; });
+  const lab = r => (r.k.length === 4 ? r.k : `${r.k.slice(2, 4)} Q${r.k.slice(5)}`) + (r.partial ? '*' : '');
+  const frame = (box, yTicks, fmt, y, padL) => { const W = box.clientWidth, H = box.clientHeight;
+    return yTicks.map(t => `<line x1="${padL}" x2="${W - 8}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" ${t === 0 ? '' : 'stroke-dasharray="2 4"'}/><text class="axis-text" x="${padL - 8}" y="${y(t) + 4}" text-anchor="end">${fmt(t)}</text>`).join(''); };
+  const tipOn = (box, i, x, html) => { const tip = box.querySelector('.chart-tip'); tip.hidden = false; tip.style.left = x + 'px'; tip.style.top = '18px'; tip.innerHTML = html; box.querySelectorAll('[data-i]').forEach(e => e.classList.toggle('hl', +e.dataset.i === i)); };
+  const tipOff = box => { box.querySelector('.chart-tip').hidden = true; box.querySelectorAll('.hl').forEach(e => e.classList.remove('hl')); };
+  const wire = (box, html) => {
+    box.querySelectorAll('.r-hit').forEach(h => {
+      const i = +h.dataset.hit;
+      h.addEventListener('pointerenter', () => tipOn(box, i, +h.getAttribute('x') + +h.getAttribute('width') / 2, html(rows[i])));
+      h.addEventListener('pointerleave', () => tipOff(box));
+      h.addEventListener('click', () => { rPeriod = rows[i].k; renderReport(); });   // 點一期就切到那一期的財報
+    });
+  };
+  // 營業收入
+  { const box = el('rRevChart'), W = box.clientWidth, H = box.clientHeight, padL = 56, padT = 22, padB = 24, n = rows.length;
+    // 刻度取整數（1、2、2.5、5 × 10 的次方）
+    const top = Math.max(...rows.map(r => r.rev), 1), mag = 10 ** Math.floor(Math.log10(top / 2)), step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(st => top / st <= 3);
+    const ticks = Array.from({ length: Math.ceil(top / step) + 1 }, (_, i) => i * step), max = Math.max(ticks.at(-1), top * 1.12);
+    const y = v => padT + (1 - v / max) * (H - padT - padB), slot = (W - padL - 8) / n, bw = Math.min(36, slot * 0.6);
+    const fmt = v => '$' + (v >= 1e3 ? +(v / 1e3).toFixed(1) + 'K' : v.toFixed(0));
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}">${frame(box, ticks, fmt, y, padL)}
+      ${rows.map((r, i) => { const x = padL + slot * i + (slot - bw) / 2, on = r.k === rPeriod, h = Math.max(y(0) - y(r.rev), 1);
+        return `<path data-i="${i}" class="r-bar ${on ? 'on' : ''}" d="M${x},${y(0)}V${y(0) - h + 4}q0,-4 4,-4h${bw - 8}q4,0 4,4V${y(0)}Z" fill="var(--accent)"/>
+          ${on ? `<text class="r-val" x="${x + bw / 2}" y="${y(0) - h - 6}" text-anchor="middle">${usd0(r.rev)}</text>` : ''}
+          <text class="axis-text ${on ? 'on' : ''}" x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${lab(r)}</text>
+          <rect class="r-hit" data-hit="${i}" x="${padL + slot * i}" y="0" width="${slot}" height="${H}" fill="transparent"/>`; }).join('')}
+    </svg><div class="chart-tip" hidden></div>`;
+    wire(box, r => `<div style="margin-bottom:3px">${rName(r.k)}${r.partial ? '（至今）' : ''}</div><div class="row"><span>營業收入</span><b>${usd0(r.rev)}</b></div>`);
+  }
+  // 毛利率、淨利率：太極端的（營收很小的那幾期）壓在上下邊緣，提示框寫實際數字
+  { const box = el('rMarginChart'), W = box.clientWidth, H = box.clientHeight, padL = 48, padT = 22, padB = 24, n = rows.length;
+    const vals = rows.flatMap(r => [r.gm, r.nm]).filter(v => v != null);
+    const lo = Math.max(Math.floor(Math.min(0, ...vals) * 2) / 2, -1), hi = Math.min(Math.ceil(Math.max(1, ...vals) * 2) / 2, 1.5);   // 以 50% 為一格
+    const y = v => padT + (1 - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * (H - padT - padB), slot = (W - padL - 8) / n, cx = i => padL + slot * (i + 0.5);
+    const S = [['gm', '毛利率', 'var(--s1)', ''], ['nm', '淨利率', 'var(--s2)', 'stroke-dasharray="6 4"']];   // 兩條常常重疊，淨利率用虛線
+    const ticks = Array.from({ length: Math.round((hi - lo) * 2) + 1 }, (_, i) => lo + i / 2);
+    const line = key => rows.map((r, i) => r[key] == null ? '' : `${i && rows[i - 1][key] != null ? 'L' : 'M'}${cx(i).toFixed(1)},${y(r[key]).toFixed(1)}`).join('');
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}">${frame(box, ticks, t => Math.round(t * 100) + '%', y, padL)}
+      ${rows.map((r, i) => `<text class="axis-text ${r.k === rPeriod ? 'on' : ''}" x="${cx(i)}" y="${H - 6}" text-anchor="middle">${lab(r)}</text>`).join('')}
+      ${rows.map((r, i) => r.k === rPeriod ? `<rect x="${padL + slot * i}" y="${padT - 14}" width="${slot}" height="${H - padT - padB + 14}" fill="var(--accent-soft)" rx="4"/>` : '').join('')}
+      ${S.map(([key, , c, dash]) => `<path d="${line(key)}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round" ${dash}/>`).join('')}
+      ${S.map(([key, , c]) => rows.map((r, i) => r[key] == null ? '' : `<circle data-i="${i}" cx="${cx(i)}" cy="${y(r[key])}" r="4" fill="${r[key] < lo || r[key] > hi ? 'var(--surface)' : c}" stroke="${r[key] < lo || r[key] > hi ? c : 'var(--surface)'}" stroke-width="2"/>`).join('')).join('')}
+      ${rows.map((r, i) => `<rect class="r-hit" data-hit="${i}" x="${padL + slot * i}" y="0" width="${slot}" height="${H}" fill="transparent"/>`).join('')}
+    </svg><div class="chart-tip" hidden></div>`;
+    wire(box, r => `<div style="margin-bottom:3px">${rName(r.k)}${r.partial ? '（至今）' : ''}</div>${S.map(([key, name, c]) => `<div class="row"><span><span class="dot" style="background:${c}"></span> ${name}</span><b>${r[key] == null ? '—' : pctPlain(r[key], 1)}</b></div>`).join('')}`);
+    el('rMarginLegend').innerHTML = S.map(([key, name, c, dash]) => { const r = rows.find(x => x.k === rPeriod); return `<span class="legend-item"><svg width="22" height="8"><line x1="1" x2="21" y1="4" y2="4" stroke="${c}" stroke-width="2" ${dash}/></svg>${name} <b class="num">${r?.[key] == null ? '—' : pctPlain(r[key], 1)}</b></span>`; }).join('')
+      + (vals.some(v => v < lo || v > hi) ? '<span class="sub">空心點：超出圖的範圍，滑過去看實際數字</span>' : '');
+  }
+  el('rTrendNote').textContent = rows.some(r => r.partial) ? '* 今年還沒結束，算到今天。點長條或折線上的一期，可以切到那一期的財報。' : '點長條或折線上的一期，可以切到那一期的財報。';
+}
+
 function renderReport() {
   const box = el('rSankey'); if (!box) return;
   const st = realizedStats();
@@ -377,18 +451,20 @@ function renderReport() {
   el('rHead').innerHTML = `<div class="fs-co">${COMPANY}</div><div class="fs-title">${rName(rPeriod)}綜合損益表</div>
     <div class="fs-sub">${s.start.date >= s.a ? `${s.start.date.replaceAll('-', '/')}（開戶）` : s.a.replaceAll('-', '/')} – ${s.b.replaceAll('-', '/')}${partial ? '（年度進行中，跟去年同期比）' : ''}・單位：美元</div>`;
   rSankey(box, s, p);
+  rTrend(ps, st);
   // 綜合損益表（正式格式：費用、損失用括號）
   const ROWS = [['營業收入', null, 'h'], ['處分投資利益（股票）', 'dispG'], ['衍生工具利益（選擇權）', 'derivG'], ['股利收入', 'div'], ['利息收入', 'intInc'], ['金融資產評價利益', 'valG'], ['營業收入合計', 'rev', 't'],
     ['營業成本', null, 'h'], ['處分投資損失（股票）', 'dispL', '', -1], ['衍生工具損失（選擇權）', 'derivL', '', -1], ['金融資產評價損失', 'valL', '', -1], ['營業成本合計', 'cost', 't', -1],
     ['營業毛利', 'gp', 'T'], ['營業費用', null, 'h'], ['手續費及交易規費', 'fees', '', -1], ['營業利益', 'op', 'T'],
     ['營業外收入及支出', null, 'h'], ['其他收入（帳外獲利）', 'outside'], ['利息費用（融資）', 'intExp', '', -1], ['稅前淨利', 'pre', 'T'],
-    ['所得稅利益（股利預扣稅退還）', 'refund'], ['本期淨利（淨損）', 'ni', 'N']];
-  const cell = (Lx, key, sign) => { const v = (Lx?.[key] ?? 0) * (sign || 1); return `<td class="num">${Lx ? rNum(v) : '—'}</td><td class="num muted">${Lx && Lx.rev > 0 && Math.abs(v) >= 0.5 ? (v < 0 ? `(${Math.round(-v / Lx.rev * 100)}%)` : Math.round(v / Lx.rev * 100) + '%') : ''}</td>`; };
+    ['所得稅利益（股利預扣稅退還）', 'refund'], ['本期淨利（淨損）', 'ni', 'N'], ['基本每股盈餘（美元）', 'eps', 'E']];
+  const epsTxt = v => v < 0 ? `(${(-v).toFixed(2)})` : v.toFixed(2);
+  const cell = (Lx, key, sign) => key === 'eps' ? `<td class="num">${Lx ? epsTxt(Lx.eps) : '—'}</td><td></td>` : (() => { const v = (Lx?.[key] ?? 0) * (sign || 1); return `<td class="num">${Lx ? rNum(v) : '—'}</td><td class="num muted">${Lx && Lx.rev > 0 && Math.abs(v) >= 0.5 ? (v < 0 ? `(${Math.round(-v / Lx.rev * 100)}%)` : Math.round(v / Lx.rev * 100) + '%') : ''}</td>`; })();
   const shown = ROWS.filter(([, key, kind]) => !key || kind || Math.abs(L[key]) >= 0.5 || (P && Math.abs(P[key]) >= 0.5))
     .filter(([, key], i, a) => key || (a[i + 1] && a[i + 1][1] && !a[i + 1][2]));   // 段落標題底下沒有明細就不顯示
   const rows = shown.map(([name, key, kind = '', sign]) => {
     if (!key) return `<tr class="fs-h"><td colspan="6">${name}</td></tr>`;
-    const y = rYoYFmt(L[key], P?.[key]);
+    const y = rYoYFmt(L[key], P?.[key], key === 'eps' ? 0.01 : 1);   // EPS 是幾毛錢的數字
     return `<tr class="fs-${kind || 'i'}"><td class="l">${name}</td>${cell(L, key, sign)}${cell(P, key, sign)}<td class="num ${y == null ? 'muted' : ''}">${y ?? '—'}</td></tr>`;
   }).join('');
   el('rTable').innerHTML = `<div class="table-wrap"><table class="table fs-table"><thead><tr><th class="l">會計項目</th><th>${colName(rPeriod)}</th><th>%</th><th>${colName(rPrev(rPeriod))}</th><th>%</th><th>年增率</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -408,8 +484,8 @@ function renderReport() {
     { k: '營業收入', v: usd0(L.rev), s: rYoYText(L.rev, P?.rev) || '去年同期沒有資料' },
     { k: '本期淨利', v: usd0(L.ni, { sign: true }), vcls: `num ${cls(L.ni)}`, s: rYoYText(L.ni, P?.ni) || '去年同期沒有資料' },
     { k: '毛利率', v: pctOf(L.gp), s: P && P.rev > 0 ? `去年同期 ${pctPlain(P.gp / P.rev, 1)}` : '' },
-    { k: '營業利益率', v: pctOf(L.op), s: P && P.rev > 0 ? `去年同期 ${pctPlain(P.op / P.rev, 1)}` : '' },
     { k: '淨利率', v: pctOf(L.ni), s: P && P.rev > 0 ? `去年同期 ${pctPlain(P.ni / P.rev, 1)}` : '' },
+    { k: '每股盈餘（EPS）', v: `${L.eps < 0 ? '−' : ''}$${Math.abs(L.eps).toFixed(2)}`, vcls: `num ${cls(L.eps)}`, s: `${rYoYText(L.eps, P?.eps, 0.01) || '去年同期沒有資料'}・每股淨值 $${L.bvps.toFixed(2)}` },
     { k: '股東權益報酬率', v: pct(L.roe), vcls: `num ${cls(L.roe)}`, s: '淨利 ÷ 平均淨資產' }], 'cols-2');
 }
 
