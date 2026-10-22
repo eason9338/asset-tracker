@@ -83,17 +83,26 @@ async function load() {
   data.settings ??= { displayCurrency: 'TWD' };
   if (data.settings.lastFx) ({ rate: fx, prev: fxPrev } = data.settings.lastFx);
 }
-let saveTimer = null;
-function save() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
+let saveTimer = null, writing = Promise.resolve();
+// 寫入排隊：一次只送一個，每個都用最新的版本號（避免兩個請求互撞變成「別處更新」）
+function write(url, body) {
+  writing = writing.then(async () => {
     try {
-      const r = await fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body()) });
       if (r.status === 409) { toast('資料已在別處更新，重新載入中…'); setTimeout(() => location.reload(), 1200); return; }
       if (!r.ok) throw new Error();
       data.rev = (await r.json()).rev;
     } catch { toast('⚠️ 儲存失敗，請確認伺服器仍在執行'); }
-  }, 150);
+  });
+}
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveTimer = null; write('/api/data', () => data); }, 150);
+}
+function saveToday(entry) {
+  // 只有今天的總資產變了：送那一筆就好；有其他改動還沒存的話照常整份存
+  if (saveTimer) return save();
+  write('/api/history-today', () => ({ rev: data.rev, entry }));
 }
 
 // ============ Quotes ============
@@ -106,20 +115,18 @@ async function refreshQuotes() {
   const btn = $('#refreshBtn');
   btn.innerHTML = '<span class="spin">↻</span> 更新中';
   try {
-    const r = await fetch('/api/quotes?symbols=' + encodeURIComponent([...syms, 'TWD=X'].join(',')));
-    const q = await r.json();
+    // 股票和選擇權報價同時抓
+    const [q, oq] = await Promise.all([fetch('/api/quotes?symbols=' + encodeURIComponent([...syms, 'TWD=X'].join(','))).then(r => r.json()),
+      optSyms.length ? fetch('/api/options?symbols=' + encodeURIComponent(optSyms.join(','))).then(r => r.json()) : {}]);
     let failed = [];
     for (const [s, v] of Object.entries(q)) {
       if (v.error || v.price == null) { if (s !== 'TWD=X') failed.push(s); continue; }
       if (s === 'TWD=X') { fx = v.price; fxPrev = v.prevClose; data.settings.lastFx = { rate: fx, prev: fxPrev }; }
       else quotes[s] = v;
     }
-    if (optSyms.length) {
-      const oq = await (await fetch('/api/options?symbols=' + encodeURIComponent(optSyms.join(',')))).json();
-      for (const [s, v] of Object.entries(oq)) {
-        if (v.error || v.mark == null) failed.push(optName(s));
-        else optQuotes[s] = v;
-      }
+    for (const [s, v] of Object.entries(oq)) {
+      if (v.error || v.mark == null) failed.push(optName(s));
+      else optQuotes[s] = v;
     }
     lastUpdate = new Date();
     if (failed.length) toast('查不到報價：' + failed.join(', '));
@@ -191,7 +198,7 @@ function recordHistory() {
     if (last.usd === entry.usd && last.twd === entry.twd) return;
     data.history[data.history.length - 1] = entry;
   } else data.history.push(entry);
-  save();
+  saveToday(entry);
 }
 
 // ============ Render ============

@@ -4,6 +4,7 @@
 啟動：python3 server.py   然後打開 http://localhost:8765
 資料存在同資料夾的 data.json（每次存檔前會備份到 backups/）。
 """
+import gzip
 import html as htmllib
 import http.cookiejar
 import json
@@ -41,6 +42,8 @@ def render_page(name):
     with open(os.path.join(BASE, "pages", name + ".html"), encoding="utf-8") as f:
         content = f.read()
     shell = shell.replace(f'data-nav="{name}"', f'data-nav="{name}" class="on" aria-current="page"')
+    # 程式檔網址加上修改時間當版本號：檔案沒改，瀏覽器就直接用存著的，不用每換一頁重新下載
+    shell = re.sub(r'(src|href)="/([\w.\-]+)"', lambda m: f'{m[1]}="/{m[2]}?v={_static_version(m[2])}"' if m[2] in STATIC_FILES else m[0], shell)
     return (shell.replace("{{TITLE}}", PAGES[name]).replace("{{PAGE}}", name)
             .replace("{{CONTENT}}", content)).encode("utf-8")
 
@@ -55,6 +58,13 @@ STATIC_FILES = {
     "icon-180.png": "image/png",
     "icon-512.png": "image/png",
 }
+
+def _static_version(name):
+    try:
+        return int(os.path.getmtime(os.path.join(BASE, name)))
+    except OSError:
+        return 0
+
 
 DEFAULT_DATA = {
     "cash": {"USD": 0, "TWD": 0},
@@ -514,17 +524,20 @@ def fetch_sectors(symbols):
     return out
 
 
-_hist_cache = {}  # (symbol, from) -> (timestamp, {date: close})
+# 歷史收盤價：存在 cache/history/<代號>.json，過去的價格不會變，之後只補抓最近幾天
+HIST_DIR = os.path.join(CACHE_DIR, "history")
+_hist_cache = {}  # symbol -> {"ts": 上次抓的時間, "from": 涵蓋的起始日, "data": {date: close}}
+_hist_lock = threading.Lock()
+_hist_fail = {}  # symbol -> 上次抓失敗的時間（Yahoo 查不到的代號一小時內不重試，免得每次都卡住）
 
 
-def fetch_history(symbol, start):
-    key = (symbol, start)
-    hit = _hist_cache.get(key)
-    if hit and time.time() - hit[0] < 600:
-        return hit[1]
-    p1 = int(datetime.strptime(start, "%Y-%m-%d").timestamp()) - 7 * 86400
-    p2 = int(time.time()) + 86400
+def _hist_file(symbol):
+    return os.path.join(HIST_DIR, urllib.parse.quote(symbol, safe="") + ".json")
+
+
+def _yahoo_closes(symbol, p1):
     yahoo = symbol.replace(".", "-")  # BRK.B -> BRK-B
+    p2 = int(time.time()) + 86400
     err = None
     for host in ("query1", "query2"):
         try:
@@ -536,18 +549,54 @@ def fetch_history(symbol, start):
             err = e
             time.sleep(0.5)
     else:
-        return {"error": str(err)}
-    try:
-        tz = j["meta"].get("gmtoffset", 0)
-        closes = j["indicators"]["quote"][0]["close"]
-        out = {
-            datetime.utcfromtimestamp(t + tz).strftime("%Y-%m-%d"): c
-            for t, c in zip(j.get("timestamp", []), closes) if c is not None
-        }
-        _hist_cache[key] = (time.time(), out)
-        return out
-    except Exception as e:  # noqa: BLE001
-        return {"error": str(e)}
+        raise RuntimeError(str(err))
+    tz = j["meta"].get("gmtoffset", 0)
+    closes = j["indicators"]["quote"][0]["close"]
+    return {
+        datetime.utcfromtimestamp(t + tz).strftime("%Y-%m-%d"): c
+        for t, c in zip(j.get("timestamp", []), closes) if c is not None
+    }
+
+
+def fetch_history(symbol, start):
+    lo = (datetime.strptime(start, "%Y-%m-%d").timestamp()) - 7 * 86400
+    lo_date = datetime.fromtimestamp(lo).strftime("%Y-%m-%d")
+    with _hist_lock:
+        hit = _hist_cache.get(symbol)
+        if hit is None and os.path.exists(_hist_file(symbol)):
+            try:
+                with open(_hist_file(symbol), encoding="utf-8") as f:
+                    hit = _hist_cache[symbol] = json.load(f)
+            except Exception:  # noqa: BLE001
+                hit = None
+    covers = hit is not None and hit["from"] <= lo_date
+    if not covers and time.time() - _hist_fail.get(symbol, 0) < 3600:
+        return {"error": "查不到（一小時內不重試）"}
+    if not (covers and time.time() - hit["ts"] < 600):
+        try:
+            if covers and hit["data"]:
+                # 只補最近的：從存著的最後一天往前 10 天開始抓，重疊的日子順便檢查有沒有分割（價格整個變了就全部重抓）
+                last = max(hit["data"])
+                new = _yahoo_closes(symbol, int(datetime.strptime(last, "%Y-%m-%d").timestamp()) - 10 * 86400)
+                same = all(abs(new[d] / hit["data"][d] - 1) < 0.01 for d in new if d in hit["data"] and d < last and hit["data"][d])
+                data = {**hit["data"], **new} if same else _yahoo_closes(symbol, int(datetime.strptime(hit["from"], "%Y-%m-%d").timestamp()))
+                hit = {"ts": time.time(), "from": hit["from"], "data": data}
+            else:
+                frm = min(lo_date, hit["from"]) if hit else lo_date
+                hit = {"ts": time.time(), "from": frm, "data": _yahoo_closes(symbol, int(datetime.strptime(frm, "%Y-%m-%d").timestamp()))}
+            with _hist_lock:
+                _hist_cache[symbol] = hit
+                os.makedirs(HIST_DIR, exist_ok=True)
+                tmp = _hist_file(symbol) + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(hit, f)
+                os.replace(tmp, _hist_file(symbol))
+        except Exception as e:  # noqa: BLE001
+            _hist_fail[symbol] = time.time()
+            if not covers:
+                return {"error": str(e)}
+            # 抓不到就先用存著的
+    return {d: c for d, c in sorted(hit["data"].items()) if d >= lo_date}
 
 
 def parse_xlsx(raw):
@@ -586,19 +635,63 @@ def save_data(data):
     os.replace(tmp, DATA_FILE)
 
 
+_save_lock = threading.Lock()
+_gz = {}  # 最近壓縮過的內容（同一份資料檔、程式檔不用每次重壓）
+
+
+def _gzip_cached(body):
+    key = (len(body), hash(body))
+    if key not in _gz:
+        if len(_gz) > 20:
+            _gz.clear()
+        _gz[key] = gzip.compress(body, 6)
+    return _gz[key]
+
+
+def _data_etag():
+    try:
+        st = os.stat(DATA_FILE)
+        return f'"{st.st_mtime_ns}-{st.st_size}"'
+    except OSError:
+        return '"empty"'
+
+
+class _nullctx:
+    def __enter__(self):
+        return None
+
+    def __exit__(self, *a):
+        return False
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    def _send(self, code, body, ctype="application/json; charset=utf-8"):
+    def _send(self, code, body, ctype="application/json; charset=utf-8", cache="no-store", etag=None):
         if isinstance(body, (dict, list)):
             body = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        # 文字類的回應壓縮後再送（資料檔 600KB 壓完不到 100KB，手機上差很多）
+        gz = len(body) > 1024 and not ctype.startswith("image/") and "gzip" in self.headers.get("Accept-Encoding", "")
+        if gz:
+            body = _gzip_cached(body)
         self.send_response(code)
         self.send_header("Content-Type", ctype)
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
+        if etag:
+            self.send_header("ETag", etag)
+        if gz:
+            self.send_header("Content-Encoding", "gzip")
+        self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _not_modified(self, etag):
+        self.send_response(304)
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
 
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
@@ -610,9 +703,16 @@ class Handler(BaseHTTPRequestHandler):
         static = STATIC_FILES.get(u.path.lstrip("/"))
         if static and os.path.exists(os.path.join(BASE, u.path.lstrip("/"))):
             with open(os.path.join(BASE, u.path.lstrip("/")), "rb") as f:
-                return self._send(200, f.read(), static)
+                # 帶版本號的網址內容不會變，讓瀏覽器存一年；改檔案時網址的版本號會跟著變
+                return self._send(200, f.read(), static, "public, max-age=31536000, immutable" if "v=" in u.query else "no-cache")
         if u.path == "/api/data":
-            return self._send(200, load_data())
+            # 資料沒變就回 304，瀏覽器直接用上次下載的
+            etag = _data_etag()
+            if self.headers.get("If-None-Match") == etag:
+                return self._not_modified(etag)
+            with open(DATA_FILE, "rb") if os.path.exists(DATA_FILE) else _nullctx() as f:
+                body = f.read() if f else json.dumps(DEFAULT_DATA).encode("utf-8")
+            return self._send(200, body, cache="no-cache", etag=etag)
         if u.path == "/api/quotes":
             q = urllib.parse.parse_qs(u.query).get("symbols", [""])[0]
             symbols = [s.strip().upper() for s in q.split(",") if s.strip()][:60]
@@ -650,17 +750,32 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"sheets": parse_xlsx(raw)})
             except Exception as e:  # noqa: BLE001
                 return self._send(400, {"error": str(e)})
-        if urllib.parse.urlparse(self.path).path != "/api/data":
+        path = urllib.parse.urlparse(self.path).path
+        if path not in ("/api/data", "/api/history-today"):
             return self._send(404, {"error": "not found"})
         length = int(self.headers.get("Content-Length", 0))
         try:
-            data = json.loads(self.rfile.read(length))
-            # 版本檢查：避免舊分頁蓋掉較新的資料
-            current = load_data().get("rev", 0)
-            if data.get("rev", 0) != current:
-                return self._send(409, {"error": "conflict", "rev": current})
-            data["rev"] = current + 1
-            save_data(data)
+            body = json.loads(self.rfile.read(length))
+            with _save_lock:
+                # 版本檢查：避免舊分頁蓋掉較新的資料
+                current = load_data().get("rev", 0) if path == "/api/data" else None
+                if path == "/api/history-today":
+                    # 更新股價時只送今天那一筆總資產，不用整份資料重傳
+                    data = load_data()
+                    current = data.get("rev", 0)
+                    if body.get("rev", 0) != current:
+                        return self._send(409, {"error": "conflict", "rev": current})
+                    e, hist = body["entry"], data.setdefault("history", [])
+                    if hist and hist[-1].get("date") == e["date"]:
+                        hist[-1] = e
+                    else:
+                        hist.append(e)
+                else:
+                    data = body
+                    if data.get("rev", 0) != current:
+                        return self._send(409, {"error": "conflict", "rev": current})
+                data["rev"] = current + 1
+                save_data(data)
             self._send(200, {"ok": True, "rev": data["rev"]})
         except Exception as e:  # noqa: BLE001
             self._send(400, {"error": str(e)})
