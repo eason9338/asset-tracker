@@ -289,7 +289,7 @@ function rStatement(k, st, upTo = null) {
   L.roe = s.ni / ((start.usd + end.usd) / 2);
   // 基本每股盈餘＝淨利 ÷ 期間加權平均股數
   const U = rUnits(), us = hist.filter(x => x.date > start.date && x.date <= end.date).map(x => U[x.date]);
-  L.eps = us.length ? s.ni / avg(us) : 0; L.bvps = end.usd / U[end.date];
+  L.sh = us.length ? avg(us) : U[end.date]; L.eps = s.ni / L.sh; L.bvps = end.usd / U[end.date];
   return s;
 }
 const rNum = v => Math.abs(v) < 0.5 ? '—' : v < 0 ? `(${Math.round(-v).toLocaleString('en-US')})` : Math.round(v).toLocaleString('en-US');
@@ -367,6 +367,7 @@ function rSankey(box, s, p) {
     return `M${x0},${l.y0}C${xm},${l.y0} ${xm},${l.y1} ${x1},${l.y1}L${x1},${l.y1 + l.w}C${xm},${l.y1 + l.w} ${xm},${l.y0 + l.w} ${x0},${l.y0 + l.w}Z`; };
   const hasOut = new Set(links.map(l => l.a));
   const label = n => {
+    n = { ...n, sub: '' };   // 大圖只寫名稱和金額；比率、年增在下面的表和圖
     const name = `<tspan font-weight="700" fill="${n.color}">${esc(n.name)}</tspan>`, amt = `<tspan class="sk-amt">${usd0(n.v)}</tspan>`;
     if (n.col === 0) return `<text x="${n.x - 8}" y="${n.y + n.h / 2 - 2}" text-anchor="end">${name}<tspan x="${n.x - 8}" dy="15" class="sk-amt">${usd0(n.v)}</tspan></text>`;
     if (!hasOut.has(n.id)) return `<text x="${n.x + nw + 8}" y="${n.y + n.h / 2 - (n.sub ? 8 : 2)}">${name}<tspan x="${n.x + nw + 8}" dy="15">${amt}</tspan>${n.sub ? `<tspan x="${n.x + nw + 8}" dy="14" class="sk-sub">${esc(n.sub)}</tspan>` : ''}</text>`;
@@ -381,58 +382,75 @@ function rSankey(box, s, p) {
 }
 
 function rTrend(ps, st) {
-  // 每一期的營業收入（長條）和毛利率、淨利率（折線）；兩種單位分成兩張圖，不共用座標軸
-  const rows = ps.map(k => { const last = data.history.at(-1).date, partial = rRange(k)[1] >= last, L = rStatement(k, st, partial ? last : null).L;
-    return { k, partial, rev: L.rev, gm: L.rev > 0 ? L.gp / L.rev : null, nm: L.rev > 0 ? L.ni / L.rev : null }; });
+  // 三張小圖：營業收入、每股盈餘（長條），淨利率和營收成長率（折線，都是 %，共用一個座標軸）
+  const last = data.history.at(-1).date;
+  const rows = ps.map(k => {
+    const partial = rRange(k)[1] >= last, L = rStatement(k, st, partial ? last : null).L;
+    const P = rStatement(rPrev(k), st, partial ? `${rPrev(k)}-${last.slice(5)}` : null)?.L;   // 去年同期（今年還沒結束就比同一段期間）
+    return { k, partial, rev: L.rev, eps: L.eps, nm: L.rev > 0 ? L.ni / L.rev : null, gr: rYoY(L.rev, P?.rev) };
+  });
   const lab = r => (r.k.length === 4 ? r.k : `${r.k.slice(2, 4)} Q${r.k.slice(5)}`) + (r.partial ? '*' : '');
-  const frame = (box, yTicks, fmt, y, padL) => { const W = box.clientWidth, H = box.clientHeight;
-    return yTicks.map(t => `<line x1="${padL}" x2="${W - 8}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" ${t === 0 ? '' : 'stroke-dasharray="2 4"'}/><text class="axis-text" x="${padL - 8}" y="${y(t) + 4}" text-anchor="end">${fmt(t)}</text>`).join(''); };
-  const tipOn = (box, i, x, html) => { const tip = box.querySelector('.chart-tip'); tip.hidden = false; tip.style.left = x + 'px'; tip.style.top = '18px'; tip.innerHTML = html; box.querySelectorAll('[data-i]').forEach(e => e.classList.toggle('hl', +e.dataset.i === i)); };
-  const tipOff = box => { box.querySelector('.chart-tip').hidden = true; box.querySelectorAll('.hl').forEach(e => e.classList.remove('hl')); };
+  const nice = (lo, hi, n = 3) => {   // 整數刻度（1、2、2.5、5 × 10 的次方），包含 0
+    const span = Math.max(hi - lo, 1e-9), mag = 10 ** Math.floor(Math.log10(span / n)), step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(x => span / x <= n);
+    const a = Math.floor(lo / step) * step, b = Math.ceil(hi / step) * step;
+    return Array.from({ length: Math.round((b - a) / step) + 1 }, (_, i) => +(a + i * step).toFixed(10));
+  };
+  const grid = (W, ticks, fmt, y, padL) => ticks.map(t => `<line x1="${padL}" x2="${W - 8}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" ${t === 0 ? '' : 'stroke-dasharray="2 4"'}/><text class="axis-text" x="${padL - 8}" y="${y(t) + 4}" text-anchor="end">${fmt(t)}</text>`).join('');
+  const xLabels = (H, cx) => rows.map((r, i) => `<text class="axis-text ${r.k === rPeriod ? 'on' : ''}" x="${cx(i)}" y="${H - 6}" text-anchor="middle">${lab(r)}</text>`).join('');
+  const hits = (H, padL, slot) => rows.map((r, i) => `<rect class="r-hit" data-hit="${i}" x="${padL + slot * i}" y="0" width="${slot}" height="${H}" fill="transparent"/>`).join('');
   const wire = (box, html) => {
+    const tip = box.querySelector('.chart-tip');
     box.querySelectorAll('.r-hit').forEach(h => {
       const i = +h.dataset.hit;
-      h.addEventListener('pointerenter', () => tipOn(box, i, +h.getAttribute('x') + +h.getAttribute('width') / 2, html(rows[i])));
-      h.addEventListener('pointerleave', () => tipOff(box));
+      h.addEventListener('pointerenter', () => { tip.hidden = false; tip.style.left = (+h.getAttribute('x') + +h.getAttribute('width') / 2) + 'px'; tip.style.top = '18px';
+        tip.innerHTML = `<div style="margin-bottom:3px">${rName(rows[i].k)}${rows[i].partial ? '（至今）' : ''}</div>${html(rows[i])}`;
+        box.querySelectorAll('[data-i]').forEach(e => e.classList.toggle('hl', +e.dataset.i === i)); });
+      h.addEventListener('pointerleave', () => { tip.hidden = true; box.querySelectorAll('.hl').forEach(e => e.classList.remove('hl')); });
       h.addEventListener('click', () => { rPeriod = rows[i].k; renderReport(); });   // 點一期就切到那一期的財報
     });
   };
-  // 營業收入
-  { const box = el('rRevChart'), W = box.clientWidth, H = box.clientHeight, padL = 56, padT = 22, padB = 24, n = rows.length;
-    // 刻度取整數（1、2、2.5、5 × 10 的次方）
-    const top = Math.max(...rows.map(r => r.rev), 1), mag = 10 ** Math.floor(Math.log10(top / 2)), step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(st => top / st <= 3);
-    const ticks = Array.from({ length: Math.ceil(top / step) + 1 }, (_, i) => i * step), max = Math.max(ticks.at(-1), top * 1.12);
-    const y = v => padT + (1 - v / max) * (H - padT - padB), slot = (W - padL - 8) / n, bw = Math.min(36, slot * 0.6);
-    const fmt = v => '$' + (v >= 1e3 ? +(v / 1e3).toFixed(1) + 'K' : v.toFixed(0));
-    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}">${frame(box, ticks, fmt, y, padL)}
-      ${rows.map((r, i) => { const x = padL + slot * i + (slot - bw) / 2, on = r.k === rPeriod, h = Math.max(y(0) - y(r.rev), 1);
-        return `<path data-i="${i}" class="r-bar ${on ? 'on' : ''}" d="M${x},${y(0)}V${y(0) - h + 4}q0,-4 4,-4h${bw - 8}q4,0 4,4V${y(0)}Z" fill="var(--accent)"/>
-          ${on ? `<text class="r-val" x="${x + bw / 2}" y="${y(0) - h - 6}" text-anchor="middle">${usd0(r.rev)}</text>` : ''}
-          <text class="axis-text ${on ? 'on' : ''}" x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${lab(r)}</text>
-          <rect class="r-hit" data-hit="${i}" x="${padL + slot * i}" y="0" width="${slot}" height="${H}" fill="transparent"/>`; }).join('')}
-    </svg><div class="chart-tip" hidden></div>`;
-    wire(box, r => `<div style="margin-bottom:3px">${rName(r.k)}${r.partial ? '（至今）' : ''}</div><div class="row"><span>營業收入</span><b>${usd0(r.rev)}</b></div>`);
-  }
-  // 毛利率、淨利率：太極端的（營收很小的那幾期）壓在上下邊緣，提示框寫實際數字
+  const row = (name, v, c) => `<div class="row"><span>${c ? `<span class="dot" style="background:${c}"></span> ` : ''}${name}</span><b>${v}</b></div>`;
+  // 長條圖：正的往上、負的往下，資料端圓角
+  const bars = (box, key, fmt, color, valFmt) => {
+    const W = box.clientWidth, H = box.clientHeight, padL = 52, padT = 22, padB = 24, n = rows.length, vs = rows.map(r => r[key]);
+    const ticks = nice(Math.min(0, ...vs), Math.max(0, ...vs)), lo = ticks[0], hi = Math.max(ticks.at(-1), Math.max(...vs) * 1.12);
+    const y = v => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB), slot = (W - padL - 8) / n, bw = Math.min(30, slot * 0.6), cx = i => padL + slot * (i + 0.5);
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}">${grid(W, ticks, fmt, y, padL)}
+      ${rows.map((r, i) => { const v = r[key], x = cx(i) - bw / 2, h = Math.max(Math.abs(y(0) - y(v)), 1), on = r.k === rPeriod, rr = Math.min(4, h);
+        const d = v >= 0 ? `M${x},${y(0)}V${y(0) - h + rr}q0,-${rr} ${rr},-${rr}h${bw - 2 * rr}q${rr},0 ${rr},${rr}V${y(0)}Z` : `M${x},${y(0)}V${y(0) + h - rr}q0,${rr} ${rr},${rr}h${bw - 2 * rr}q${rr},0 ${rr},-${rr}V${y(0)}Z`;
+        return `<path data-i="${i}" class="r-bar ${on ? 'on' : ''}" d="${d}" fill="${color(v)}"/>${on ? `<text class="r-val" x="${cx(i)}" y="${v >= 0 ? y(v) - 6 : y(v) + 14}" text-anchor="middle">${valFmt(v)}</text>` : ''}`; }).join('')}
+      ${xLabels(H, cx)}${hits(H, padL, slot)}</svg><div class="chart-tip" hidden></div>`;
+  };
+  const kfmt = v => (v < 0 ? '−$' : '$') + (Math.abs(v) >= 1e3 ? +(Math.abs(v) / 1e3).toFixed(1) + 'K' : Math.abs(v).toFixed(0));
+  const eps = v => `${v < 0 ? '−' : ''}$${Math.abs(v).toFixed(2)}`;
+  bars(el('rRevChart'), 'rev', kfmt, () => 'var(--accent)', usd0);
+  wire(el('rRevChart'), r => row('營業收入', usd0(r.rev)) + (r.gr != null ? row('年增', pctPlain(r.gr, 0)) : ''));
+  bars(el('rEpsChart'), 'eps', v => (v < 0 ? '−$' : '$') + +Math.abs(v).toFixed(2), v => v >= 0 ? 'var(--up)' : 'var(--down)', eps);
+  wire(el('rEpsChart'), r => row('每股盈餘', eps(r.eps)));
+  const U = rUnits(), shares = U[last];
+  el('rEpsLegend').innerHTML = `<span class="legend-item">目前流通在外 <b class="num">${Math.round(shares).toLocaleString('en-US')} 股</b></span><span class="legend-item">每股淨值 <b class="num">$${(data.history.at(-1).usd / shares).toFixed(2)}</b></span>`;
+  // 折線：淨利率、營收成長率；太極端的（營收很小、或去年同期很小）壓在上下邊緣畫空心點，提示框寫實際數字
   { const box = el('rMarginChart'), W = box.clientWidth, H = box.clientHeight, padL = 48, padT = 22, padB = 24, n = rows.length;
-    const vals = rows.flatMap(r => [r.gm, r.nm]).filter(v => v != null);
-    const lo = Math.max(Math.floor(Math.min(0, ...vals) * 2) / 2, -1), hi = Math.min(Math.ceil(Math.max(1, ...vals) * 2) / 2, 1.5);   // 以 50% 為一格
+    const S = [['nm', '淨利率', 'var(--s2)'], ['gr', '營收成長率', 'var(--s1)']];
+    const vals = rows.flatMap(r => [r.nm, r.gr]).filter(v => v != null);
+    const step = Math.max(...vals, 1) > 2 ? 1 : 0.5;
+    const lo = Math.max(Math.floor(Math.min(0, ...vals) / step) * step, -1), hi = Math.min(Math.ceil(Math.max(1, ...vals) / step) * step, 4);
     const y = v => padT + (1 - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * (H - padT - padB), slot = (W - padL - 8) / n, cx = i => padL + slot * (i + 0.5);
-    const S = [['gm', '毛利率', 'var(--s1)', ''], ['nm', '淨利率', 'var(--s2)', 'stroke-dasharray="6 4"']];   // 兩條常常重疊，淨利率用虛線
-    const ticks = Array.from({ length: Math.round((hi - lo) * 2) + 1 }, (_, i) => lo + i / 2);
+    const ticks = Array.from({ length: Math.round((hi - lo) / step) + 1 }, (_, i) => lo + i * step);
     const line = key => rows.map((r, i) => r[key] == null ? '' : `${i && rows[i - 1][key] != null ? 'L' : 'M'}${cx(i).toFixed(1)},${y(r[key]).toFixed(1)}`).join('');
-    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}">${frame(box, ticks, t => Math.round(t * 100) + '%', y, padL)}
-      ${rows.map((r, i) => `<text class="axis-text ${r.k === rPeriod ? 'on' : ''}" x="${cx(i)}" y="${H - 6}" text-anchor="middle">${lab(r)}</text>`).join('')}
+    const out = v => v < lo || v > hi;
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}">${grid(W, ticks, t => Math.round(t * 100) + '%', y, padL)}
       ${rows.map((r, i) => r.k === rPeriod ? `<rect x="${padL + slot * i}" y="${padT - 14}" width="${slot}" height="${H - padT - padB + 14}" fill="var(--accent-soft)" rx="4"/>` : '').join('')}
-      ${S.map(([key, , c, dash]) => `<path d="${line(key)}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round" ${dash}/>`).join('')}
-      ${S.map(([key, , c]) => rows.map((r, i) => r[key] == null ? '' : `<circle data-i="${i}" cx="${cx(i)}" cy="${y(r[key])}" r="4" fill="${r[key] < lo || r[key] > hi ? 'var(--surface)' : c}" stroke="${r[key] < lo || r[key] > hi ? c : 'var(--surface)'}" stroke-width="2"/>`).join('')).join('')}
-      ${rows.map((r, i) => `<rect class="r-hit" data-hit="${i}" x="${padL + slot * i}" y="0" width="${slot}" height="${H}" fill="transparent"/>`).join('')}
-    </svg><div class="chart-tip" hidden></div>`;
-    wire(box, r => `<div style="margin-bottom:3px">${rName(r.k)}${r.partial ? '（至今）' : ''}</div>${S.map(([key, name, c]) => `<div class="row"><span><span class="dot" style="background:${c}"></span> ${name}</span><b>${r[key] == null ? '—' : pctPlain(r[key], 1)}</b></div>`).join('')}`);
-    el('rMarginLegend').innerHTML = S.map(([key, name, c, dash]) => { const r = rows.find(x => x.k === rPeriod); return `<span class="legend-item"><svg width="22" height="8"><line x1="1" x2="21" y1="4" y2="4" stroke="${c}" stroke-width="2" ${dash}/></svg>${name} <b class="num">${r?.[key] == null ? '—' : pctPlain(r[key], 1)}</b></span>`; }).join('')
-      + (vals.some(v => v < lo || v > hi) ? '<span class="sub">空心點：超出圖的範圍，滑過去看實際數字</span>' : '');
+      ${S.map(([key, , c]) => `<path d="${line(key)}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round"/>`).join('')}
+      ${S.map(([key, , c]) => rows.map((r, i) => r[key] == null ? '' : `<circle data-i="${i}" cx="${cx(i)}" cy="${y(r[key])}" r="4" fill="${out(r[key]) ? 'var(--surface)' : c}" stroke="${out(r[key]) ? c : 'var(--surface)'}" stroke-width="2"/>`).join('')).join('')}
+      ${xLabels(H, cx)}${hits(H, padL, slot)}</svg><div class="chart-tip" hidden></div>`;
+    wire(box, r => S.map(([key, name, c]) => row(name, r[key] == null ? '—' : pctPlain(r[key], 1), c)).join(''));
+    const cur = rows.find(x => x.k === rPeriod);
+    el('rMarginLegend').innerHTML = S.map(([key, name, c]) => `<span class="legend-item"><span class="dot" style="background:${c}"></span>${name} <b class="num">${cur?.[key] == null ? '—' : pctPlain(cur[key], 1)}</b></span>`).join('')
+    ;
+    TM.rOut = vals.some(out);
   }
-  el('rTrendNote').textContent = rows.some(r => r.partial) ? '* 今年還沒結束，算到今天。點長條或折線上的一期，可以切到那一期的財報。' : '點長條或折線上的一期，可以切到那一期的財報。';
+  el('rTrendNote').textContent = (rows.some(r => r.partial) ? '* 今年還沒結束，算到今天。' : '') + (TM.rOut ? '空心點超出圖的範圍。' : '') + '滑過去看數字，點一期可以切到那一期的財報。營收成長率跟去年同期比。';
 }
 
 function renderReport() {
@@ -457,9 +475,9 @@ function renderReport() {
     ['營業成本', null, 'h'], ['處分投資損失（股票）', 'dispL', '', -1], ['衍生工具損失（選擇權）', 'derivL', '', -1], ['金融資產評價損失', 'valL', '', -1], ['營業成本合計', 'cost', 't', -1],
     ['營業毛利', 'gp', 'T'], ['營業費用', null, 'h'], ['手續費及交易規費', 'fees', '', -1], ['營業利益', 'op', 'T'],
     ['營業外收入及支出', null, 'h'], ['其他收入（帳外獲利）', 'outside'], ['利息費用（融資）', 'intExp', '', -1], ['稅前淨利', 'pre', 'T'],
-    ['所得稅利益（股利預扣稅退還）', 'refund'], ['本期淨利（淨損）', 'ni', 'N'], ['基本每股盈餘（美元）', 'eps', 'E']];
+    ['所得稅利益（股利預扣稅退還）', 'refund'], ['本期淨利（淨損）', 'ni', 'N'], ['基本每股盈餘（美元）', 'eps', 'E'], ['加權平均流通在外股數（股）', 'sh', 'E']];
   const epsTxt = v => v < 0 ? `(${(-v).toFixed(2)})` : v.toFixed(2);
-  const cell = (Lx, key, sign) => key === 'eps' ? `<td class="num">${Lx ? epsTxt(Lx.eps) : '—'}</td><td></td>` : (() => { const v = (Lx?.[key] ?? 0) * (sign || 1); return `<td class="num">${Lx ? rNum(v) : '—'}</td><td class="num muted">${Lx && Lx.rev > 0 && Math.abs(v) >= 0.5 ? (v < 0 ? `(${Math.round(-v / Lx.rev * 100)}%)` : Math.round(v / Lx.rev * 100) + '%') : ''}</td>`; })();
+  const cell = (Lx, key, sign) => key === 'eps' || key === 'sh' ? `<td class="num">${!Lx ? '—' : key === 'eps' ? epsTxt(Lx.eps) : Math.round(Lx.sh).toLocaleString('en-US')}</td><td></td>` : (() => { const v = (Lx?.[key] ?? 0) * (sign || 1); return `<td class="num">${Lx ? rNum(v) : '—'}</td><td class="num muted">${Lx && Lx.rev > 0 && Math.abs(v) >= 0.5 ? (v < 0 ? `(${Math.round(-v / Lx.rev * 100)}%)` : Math.round(v / Lx.rev * 100) + '%') : ''}</td>`; })();
   const shown = ROWS.filter(([, key, kind]) => !key || kind || Math.abs(L[key]) >= 0.5 || (P && Math.abs(P[key]) >= 0.5))
     .filter(([, key], i, a) => key || (a[i + 1] && a[i + 1][1] && !a[i + 1][2]));   // 段落標題底下沒有明細就不顯示
   const rows = shown.map(([name, key, kind = '', sign]) => {
