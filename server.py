@@ -140,8 +140,21 @@ def _futu_call(fn, *args):
 
 def _futu_ctx():
     """取得（必要時建立）富途行情連線；OpenD 沒開就回傳 None，60 秒內不再重試"""
-    if _futu["ctx"] is not None:
-        return _futu["ctx"]
+    ctx = _futu["ctx"]
+    if ctx is not None:
+        try:
+            ready = ctx.status == "READY"
+        except Exception:  # noqa: BLE001
+            ready = False
+        if ready:
+            return ctx
+        # 連線斷了（例如電腦閒置後心跳逾時）：富途自己重連要等好幾分鐘，這段時間只會回錯誤、拿不到夜盤；直接關掉重開一條
+        try:
+            ctx.close()
+        except Exception:  # noqa: BLE001
+            pass
+        _futu["ctx"] = None
+        _futu["retry_at"] = 0
     if time.time() < _futu["retry_at"]:
         return None
     _futu["retry_at"] = time.time() + 60
