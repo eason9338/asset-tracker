@@ -360,9 +360,10 @@ function tmUpdate() {
   if (!items.length) tbox.innerHTML = UI.empty('這天沒有持股');
   else {
     const vMax = Math.max(...items.map(r => r.v)), W = tbox.clientWidth, H = tbox.clientHeight;
-    // 絕對大小：整張圖＝開戶以來最大的那天；方塊群跟著那天的總曝險縮放，虛線框是那天的淨資產
-    // 縮放幅度壓小（邊長取 0.12 次方），少數超大槓桿的日子不會讓其他日子縮成一小塊
-    const ref = TM.prices ? tmRef(M) : null, k = x => ref ? Math.min(1, x / ref) ** 0.12 : 1, kE = k(h.usd), kX = k(expTotal);
+    // 絕對大小：虛線框是那天的淨資產，大小跟開戶以來最大的那天比（幅度壓小，邊長取 0.12 次方）
+    // 方塊群跟虛線框的面積比＝真實的曝險／淨資產；槓桿大到放不下時，虛線框跟著縮小
+    const ref = TM.prices ? tmRef(M) : null, L = h.usd > 0 ? expTotal / h.usd : 1;
+    const kE = ref ? Math.min(Math.min(1, h.usd / ref) ** 0.12, 1 / Math.sqrt(Math.max(L, 1))) : 1, kX = ref ? kE * Math.sqrt(L) : 1;
     const area = { x: 0, y: H - H * kX, w: W * kX, h: H * kX };
     tbox.innerHTML = (ref ? `<div class="tm-equity" style="left:0;top:${H - H * kE}px;width:${W * kE}px;height:${H * kE}px"><div class="tm-eq-label">淨資產 ${money(usd0(h.usd))}</div></div>` : '')
       + squarify(items, area).map(t => {
