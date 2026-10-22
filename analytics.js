@@ -1486,11 +1486,15 @@ window.renderExtras = function renderExtras(c) {
     ['yearBox', () => renderYearly(c)], ['symSummary', () => renderSymbolPage(c)],
     ['holdScatterBox', renderHoldScatter], ['treemapBox', () => renderTreemap(c)],
   ];
-  for (const [name, fn] of parts) {
+  for (const [name, fn] of [...parts, ...(window.EXTRA_PARTS || []).map(([n, f]) => [n, () => f(c)])]) {
     const b = el(name); if (!b) continue;
     try { fn(); } catch (err) { console.error(name, err); b.innerHTML = `<div class="empty">這個區塊出錯了：${esc(err.message)}</div>`; }
   }
 };
+
+// ============ 給 explore.js（特殊功能頁）用的共用函式 ============
+window.AX = { el, usd, usd0, pct, pctPlain, avg, days, store, isCalm, dailyReturns, benchRet, grp, grpName, stockLots, optionLifeEvents,
+              squarify, outsideAsFlow, sectorOf };
 
 // ============ 事件 ============
 const confirmClick = (b, label) => {
