@@ -31,7 +31,7 @@ UA = "Mozilla/5.0"
 PAGES = {
     "overview": "總覽", "performance": "績效", "exposure": "曝險", "risk": "槓桿與選擇權",
     "plans": "交易計畫", "trades": "交易紀錄", "symbol": "標的查詢", "analysis": "交易分析", "journal": "交易日記", "settings": "設定與備份",
-    "persona": "交易人格報告", "universe": "平行宇宙", "timemachine": "資產時光機", "report": "財報", "stock": "股價",
+    "persona": "交易人格報告", "universe": "平行宇宙", "timemachine": "資產時光機", "report": "財報", "stock": "股價", "review": "年度回顧",
 }
 PAGE_ALIAS = {"": "overview", "index.html": "overview", "perf": "performance", "trade": "trades"}
 

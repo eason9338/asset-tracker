@@ -1,4 +1,4 @@
-// 特殊功能：交易人格報告、平行宇宙、資產時光機、財報、股價
+// 特殊功能：交易人格報告、平行宇宙、資產時光機、財報、股價、年度回顧
 // 只讀資料不寫入；共用函式來自 analytics.js 的 window.AX 與 app.js 的全域函式
 (() => {
 'use strict';
@@ -597,6 +597,86 @@ function renderStock() {
     + `<tr><td class="l">${all[0].date.replaceAll('-', '/')}</td><td class="l">開戶發行</td><td class="num">${usd0(all[0].usd)}</td><td class="num">$10.00</td><td class="num">+${all[0].units.toFixed(1)}</td><td class="num">${Math.round(all[0].units).toLocaleString('en-US')}</td></tr>`);
 }
 
+// ================= 年度回顧 =================
+// 一張一張翻的卡片：這一年的股價、淨利、交易習慣、最好和最慘的時刻，最後一張是總結
+let wYear = null, wIdx = 0;
+const KIND_NAME = { stock: '股票', lev: '槓桿 ETF', optLong: '選擇權買方', optShort: '選擇權賣方' };
+function reviewData(y) {
+  const last = data.history.at(-1).date, a = `${y}-01-01`, b0 = `${y}-12-31`, partial = b0 >= last, b = partial ? last : b0;
+  const inY = d => d >= a && d <= b;
+  const ps = stockSeries(), yr = ps.filter(q => inY(q.date)); if (!yr.length) return null;
+  const p0 = ps.filter(q => q.date < a).at(-1) || ps[0], p1 = yr.at(-1);
+  const st = realizedStats(), S = rStatement(y, st, partial ? last : null);
+  const qq = bench?.QQQ, q0 = qq && !qq.error ? lastOnOrBefore(qq, p0.date) : null, q1 = q0 ? lastOnOrBefore(qq, p1.date) : null;
+  // 交易次數（分割不算）
+  const tx = data.transactions.filter(t => inY(t.date) && ((t.type === 'buy' || t.type === 'sell') && !t.split || t.type === 'option'));
+  const byMonth = Array.from({ length: 12 }, (_, i) => tx.filter(t => +t.date.slice(5, 7) === i + 1).length);
+  const byDay = {}; for (const t of tx) byDay[t.date] = (byDay[t.date] || 0) + 1;
+  const busyDay = Object.entries(byDay).sort((x, z) => z[1] - x[1])[0];
+  const bySym = {}; for (const t of tx) { const s = t.type === 'option' ? occ(t.symbol)?.root || t.symbol : t.symbol; bySym[s] = (bySym[s] || 0) + 1; }
+  const fav = Object.entries(bySym).sort((x, z) => z[1] - x[1])[0];
+  // 已實現的每一筆
+  const ev = personaEvents().filter(e => inY(e.date));
+  const favPL = fav ? ev.filter(e => (e.kind.startsWith('opt') ? occ(e.sym)?.root : e.sym) === fav[0]).reduce((s, e) => s + e.r, 0) : 0;
+  const best = ev.length ? ev.reduce((x, z) => z.r > x.r ? z : x) : null, worst = ev.length ? ev.reduce((x, z) => z.r < x.r ? z : x) : null;
+  const longest = ev.length ? ev.reduce((x, z) => z.hold > x.hold ? z : x) : null;
+  // 每天的漲跌用股價算（入金出金不影響）
+  const days = yr.map((q, i) => { const pv = i ? yr[i - 1] : p0; return { date: q.date, r: q.p / pv.p - 1, usd: (q.p - pv.p) * pv.units }; }).filter(d => d.date !== p0.date);
+  const bestDay = days.reduce((x, z) => z.r > x.r ? z : x, days[0]), worstDay = days.reduce((x, z) => z.r < x.r ? z : x, days[0]);
+  const top = yr.reduce((x, z) => z.p > x.p ? z : x); let peak = p0.p, mdd = 0, mddDate = null;
+  for (const q of yr) { peak = Math.max(peak, q.p); if (q.p / peak - 1 < mdd) { mdd = q.p / peak - 1; mddDate = q.date; } }
+  return { y, partial, last, p0, p1, ret: p1.p / p0.p - 1, qret: q1 ? q1 / q0 - 1 : null, L: S?.L, tx, byMonth, busyDay, fav, favPL, ev, best, worst, longest,
+    win: ev.length ? ev.filter(e => e.r > 0).length / ev.length : null, hold: ev.length ? avg(ev.map(e => e.hold)) : null, bestDay, worstDay, top, mdd, mddDate };
+}
+function reviewSlides(D) {
+  const md = d => `${+d.slice(5, 7)} 月 ${+d.slice(8)} 日`, sgn = v => `<span class="${cls(v)}">${v >= 0 ? '+' : '−'}${usd0(Math.abs(v))}</span>`;
+  const evName = e => e.kind.startsWith('opt') ? optName(e.sym) : e.sym;
+  const spark = () => { const ps = stockSeries().filter(q => q.date >= D.p0.date && q.date <= D.p1.date), W = 520, H = 90, lo = Math.min(...ps.map(q => q.p)), hi = Math.max(...ps.map(q => q.p));
+    return `<svg class="w-spark" viewBox="0 0 ${W} ${H}"><path d="${ps.map((q, i) => (i ? 'L' : 'M') + (i / (ps.length - 1) * W).toFixed(1) + ',' + (6 + (1 - (q.p - lo) / (hi - lo || 1)) * (H - 12)).toFixed(1)).join('')}" fill="none" stroke="${D.ret >= 0 ? 'var(--up)' : 'var(--down)'}" stroke-width="2.5" stroke-linejoin="round"/></svg>`; };
+  const months = () => { const mx = Math.max(...D.byMonth, 1);
+    return `<div class="w-months">${D.byMonth.map((n, i) => `<div><i style="height:${Math.max(n / mx * 100, n ? 4 : 0)}%" class="${n === mx ? 'on' : ''}"></i><span>${i + 1}</span></div>`).join('')}</div>`; };
+  const yLabel = `${D.y} 年${D.partial ? `（到 ${md(D.last)}）` : ''}`;
+  const S = [];
+  S.push({ k: yLabel, big: `${TICKER} <span class="${cls(D.ret)}">${pct(D.ret)}</span>`, sub: `股價從 $${D.p0.p.toFixed(2)} 走到 $${D.p1.p.toFixed(2)}${D.qret != null ? `，同期 Nasdaq 100 ${pct(D.qret)}——${D.ret >= D.qret ? `你多賺了 ${((D.ret - D.qret) * 100).toFixed(1)} 個百分點` : `你落後 ${((D.qret - D.ret) * 100).toFixed(1)} 個百分點`}` : ''}`, extra: spark() });
+  if (D.L) S.push({ k: '這一年公司賺了', big: sgn(D.L.ni), sub: `營業收入 ${usd0(D.L.rev)}、每股盈餘 ${D.L.eps < 0 ? '−' : ''}$${Math.abs(D.L.eps).toFixed(2)}。${D.L.ni >= 0 ? '股東們會很開心。' : '明年再拚。'}` });
+  if (D.tx.length) S.push({ k: '你下了', big: `${D.tx.length.toLocaleString('en-US')} 筆單`, sub: `最忙的是 ${D.byMonth.indexOf(Math.max(...D.byMonth)) + 1} 月（${Math.max(...D.byMonth)} 筆）${D.busyDay ? `；單日最多是 ${md(D.busyDay[0])}，一天 ${D.busyDay[1]} 筆` : ''}。`, extra: months() });
+  if (D.fav) S.push({ k: '你最常交易的是', big: esc(D.fav[0]), sub: `一共 ${D.fav[1]} 筆，今年在它身上${D.favPL >= 0 ? '賺了' : '賠了'} ${sgn(D.favPL)}。` });
+  if (D.best && D.best.r > 0) S.push({ k: '賺最多的一筆', big: sgn(D.best.r), sub: `${esc(evName(D.best))}（${KIND_NAME[D.best.kind]}），${md(D.best.date)} 出場，抱了 ${Math.round(D.best.hold)} 天。` });
+  if (D.worst && D.worst.r < 0) S.push({ k: '賠最多的一筆', big: sgn(D.worst.r), sub: `${esc(evName(D.worst))}（${KIND_NAME[D.worst.kind]}），${md(D.worst.date)} 出場，抱了 ${Math.round(D.worst.hold)} 天。` });
+  if (D.bestDay) S.push({ k: '最好的一天', big: `<span class="${cls(D.bestDay.r)}">${pct(D.bestDay.r)}</span>`, sub: `${md(D.bestDay.date)}（${WEEK[weekday(D.bestDay.date)] ? '週' + WEEK[weekday(D.bestDay.date)] : ''}），帳戶一天${D.bestDay.usd >= 0 ? '多了' : '少了'} <span class="${cls(D.bestDay.usd)}">${usd0(Math.abs(D.bestDay.usd))}</span>。` });
+  if (D.worstDay && D.worstDay.r < 0) S.push({ k: '最慘的一天', big: `<span class="${cls(D.worstDay.r)}">${pct(D.worstDay.r)}</span>`, sub: `${md(D.worstDay.date)}（週${WEEK[weekday(D.worstDay.date)]}），帳戶一天少了 <span class="down">${usd0(Math.abs(D.worstDay.usd))}</span>。最深的回撤是 ${pct(D.mdd)}${D.mddDate ? `（${md(D.mddDate)}）` : ''}。` });
+  if (D.win != null) S.push({ k: '你的勝率', big: pctPlain(D.win, 0), sub: `${D.ev.length} 筆出場裡賺錢的有 ${D.ev.filter(e => e.r > 0).length} 筆；平均抱 ${Math.round(D.hold)} 天${D.longest ? `，最久的是 ${esc(evName(D.longest))}，抱了 ${Math.round(D.longest.hold)} 天` : ''}。` });
+  S.push({ k: '股價最高點', big: `$${D.top.p.toFixed(2)}`, sub: `出現在 ${md(D.top.date)}${D.p1.p < D.top.p ? `，現在離高點 ${pct(D.p1.p / D.top.p - 1)}` : '，就是現在'}。` });
+  // 總結卡
+  const tile = (k, v) => `<div class="w-sum-i"><div class="k">${k}</div><div class="v num">${v}</div></div>`;
+  S.push({ k: `${COMPANY}・${yLabel}`, big: '年度總結', sum: true, extra: `<div class="w-sum">${[
+    tile('股價', `$${D.p0.p.toFixed(2)} → $${D.p1.p.toFixed(2)}`), tile('報酬率', `<span class="${cls(D.ret)}">${pct(D.ret)}</span>`),
+    tile('比 Nasdaq 100', D.qret == null ? '—' : `<span class="${cls(D.ret - D.qret)}">${D.ret - D.qret >= 0 ? '+' : '−'}${Math.abs((D.ret - D.qret) * 100).toFixed(1)} 個百分點</span>`),
+    tile('本期淨利', D.L ? sgn(D.L.ni) : '—'), tile('每股盈餘', D.L ? `$${D.L.eps.toFixed(2)}` : '—'), tile('交易筆數', `${D.tx.length.toLocaleString('en-US')} 筆`),
+    tile('勝率', D.win == null ? '—' : pctPlain(D.win, 0)), tile('最常交易', D.fav ? esc(D.fav[0]) : '—'), tile('最深回撤', `<span class="down">${pct(D.mdd)}</span>`)].join('')}</div>` });
+  return S;
+}
+function renderReview() {
+  const box = el('wSlide'); if (!box) return;
+  const ys = [...new Set(data.history.filter(x => x.usd > 0).map(x => x.date.slice(0, 4)))].reverse();
+  if (!ys.length) { box.innerHTML = UI.empty('資料還不夠'); return; }
+  if (!ys.includes(wYear)) wYear = ys[0];
+  el('wYears').innerHTML = ys.map(y => `<button data-wy="${y}" class="${y === wYear ? 'on' : ''}">${y}</button>`).join('');
+  const D = reviewData(wYear); if (!D) { box.innerHTML = UI.empty('這一年沒有資料'); return; }
+  const S = reviewSlides(D); wIdx = Math.max(0, Math.min(S.length - 1, wIdx));
+  const s = S[wIdx];
+  box.innerHTML = `<div class="w-slide ${s.sum ? 'sum' : ''}" key="${wYear}-${wIdx}">
+      <div class="w-kicker">${s.k}</div><div class="w-big">${s.big}</div>${s.sub ? `<div class="w-sub">${s.sub}</div>` : ''}${s.extra || ''}
+    </div>
+    <div class="w-nav"><button class="ghost" data-wn="-1" ${wIdx ? '' : 'disabled'}>◀ 上一張</button>
+      <div class="w-dots">${S.map((_, i) => `<button data-wi="${i}" class="${i === wIdx ? 'on' : ''}" aria-label="第 ${i + 1} 張"></button>`).join('')}</div>
+      <button class="${wIdx < S.length - 1 ? 'primary' : 'ghost'}" data-wn="1" ${wIdx < S.length - 1 ? '' : 'disabled'}>下一張 ▶</button></div>`;
+}
+document.addEventListener('keydown', e => {
+  if (!el('wSlide') || /input|textarea|select/i.test(e.target.tagName)) return;
+  if (e.key === 'ArrowRight') { wIdx++; renderReview(); } else if (e.key === 'ArrowLeft') { wIdx--; renderReview(); }
+});
+
 // ================= 資產時光機 =================
 const TM = { i: null, playing: null, prices: null, loading: false, built: false, speed: 1 };
 function tmModel() {
@@ -788,7 +868,7 @@ function tmUpdate() {
 }
 
 // ================= 掛到畫面更新與事件 =================
-window.EXTRA_PARTS = [['personaBox', renderPersona], ['universeChart', renderUniverse], ['tmControls', tmUpdate], ['rSankey', renderReport], ['sChart', renderStock]];
+window.EXTRA_PARTS = [['personaBox', renderPersona], ['universeChart', renderUniverse], ['tmControls', tmUpdate], ['rSankey', renderReport], ['sChart', renderStock], ['wSlide', renderReview]];
 document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.py) { pYear = b.dataset.py; renderPersona(); }
@@ -796,6 +876,9 @@ document.addEventListener('click', e => {
   else if (b.dataset.rk) { rKind = b.dataset.rk; rPeriod = null; renderReport(); }
   else if (b.dataset.rp) { rPeriod = b.dataset.rp; renderReport(); }
   else if (b.dataset.sr) { sRange = b.dataset.sr; renderStock(); }
+  else if (b.dataset.wy) { wYear = b.dataset.wy; wIdx = 0; renderReview(); }
+  else if (b.dataset.wn) { wIdx += +b.dataset.wn; renderReview(); }
+  else if (b.dataset.wi) { wIdx = +b.dataset.wi; renderReview(); }
   else if (b.dataset.tm === 'play') tmPlay(!TM.playing);
   else if (b.dataset.tm) { tmPlay(false); tmGo(TM.i + +b.dataset.tm); }
   else if (b.dataset.tmj != null) { tmPlay(false); tmGo(+b.dataset.tmj); }

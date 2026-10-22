@@ -494,6 +494,28 @@ a.sym-link:hover { color: var(--accent); text-decoration: underline; }
 .fs-sub { font-size: var(--fs-sm); color: var(--text-3); margin-top: 4px; }
 .chart-box.report-sankey { height: 540px; }
 .sankey text { font-size: 12px; fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }   /* 文字描一圈底色，壓在流向帶上也看得清楚 */
+/* 年度回顧 */
+.w-box { margin-top: 14px; }
+.w-slide { min-height: 420px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 14px; padding: 24px; border-radius: var(--r-lg); background: var(--surface-2); animation: wIn .25s ease; }
+@keyframes wIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.w-kicker { font-size: var(--fs-lg); color: var(--text-2); }
+.w-big { font-size: 56px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+.w-slide.sum .w-big { font-size: 32px; }
+.w-sub { font-size: var(--fs-lg); color: var(--text-2); max-width: 620px; line-height: 1.7; }
+.w-spark { width: min(520px, 100%); height: 90px; }
+.w-months { display: grid; grid-template-columns: repeat(12, 26px); gap: 6px; height: 90px; align-items: end; }
+.w-months div { height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
+.w-months i { display: block; width: 100%; background: color-mix(in srgb, var(--accent) 35%, var(--surface)); border-radius: 4px 4px 0 0; }
+.w-months i.on { background: var(--accent); }
+.w-months span { font-size: var(--fs-xs); color: var(--text-3); }
+.w-sum { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px; width: min(640px, 100%); margin-top: 6px; }
+.w-sum-i { background: var(--surface); border-radius: var(--r-md); padding: 12px 14px; text-align: left; }
+.w-sum-i .k { font-size: var(--fs-sm); color: var(--text-3); }
+.w-sum-i .v { font-size: 18px; font-weight: 650; margin-top: 2px; }
+.w-nav { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
+.w-dots { display: flex; gap: 6px; }
+.w-dots button { width: 8px; height: 8px; padding: 0; border-radius: 50%; background: var(--border); border: none; }
+.w-dots button.on { background: var(--accent); width: 20px; border-radius: 4px; }
 /* 股價 */
 .s-quote { display: flex; flex-direction: column; gap: 2px; }
 .s-name { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-lg); }
