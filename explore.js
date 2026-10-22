@@ -510,7 +510,7 @@ function renderReport() {
 // ================= 股價 =================
 // 虛擬公司的股價＝每股淨值（總資產 ÷ 流通在外股數）；股數的算法見 rUnits
 const TICKER = 'AKIRA';
-let sRange = 'all';
+let sRange = '91';   // 預設看 3 個月
 function stockSeries() {
   const U = rUnits();
   return data.history.filter(x => x.usd > 0 && U[x.date]).map(x => ({ date: x.date, p: x.usd / U[x.date], units: U[x.date], usd: x.usd }));
@@ -518,10 +518,13 @@ function stockSeries() {
 function renderStock() {
   const box = el('sChart'); if (!box) return;
   const all = stockSeries(); if (all.length < 2) { box.innerHTML = UI.empty('資料還不夠'); return; }
-  const last = all.at(-1), prev = all.at(-2), chg = last.p - prev.p;
+  // 報價更新後用即時總資產（盤前、盤後、夜盤都跟著走）；還沒更新就用最後一筆紀錄
+  const c = calc(), live = lastUpdate && !c.missing.length && all.at(-1).date === today();
+  if (live) all[all.length - 1] = { ...all.at(-1), usd: c.totalUSD, p: c.totalUSD / all.at(-1).units };
+  const last = all.at(-1), prev = all.at(-2), chg = last.p - prev.p, sess = live ? marketSession() : '';
   el('sQuote').innerHTML = `<div class="s-name"><b>${TICKER}</b><span>${COMPANY}・虛擬上市</span></div>
     <div class="s-price num">$${last.p.toFixed(2)}</div>
-    <div class="s-chg num ${cls(chg)}">${chg >= 0 ? '+' : '−'}${Math.abs(chg).toFixed(2)}（${pct(chg / prev.p)}）<span class="sub">今日・${last.date.slice(5).replace('-', '/')} 收盤</span></div>`;
+    <div class="s-chg num ${cls(chg)}">${chg >= 0 ? '+' : '−'}${Math.abs(chg).toFixed(2)}（${pct(chg / prev.p)}）<span class="sub">${sess ? `今日・${sess}・${lastUpdate.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}` : `今日・${last.date.slice(5).replace('-', '/')} 收盤`}</span></div>`;
   el('sRange').innerHTML = UI.seg('sr', [['30', '1月'], ['91', '3月'], ['ytd', '今年'], ['365', '1年'], ['all', '全部']], sRange);
   // 走勢：選的區間漲就用漲色、跌就用跌色（像看盤軟體）
   const from = sRange === 'all' ? '' : sRange === 'ytd' ? last.date.slice(0, 4) + '-01-01' : addDays(last.date, -+sRange);
