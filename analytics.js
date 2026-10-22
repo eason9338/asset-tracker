@@ -1476,7 +1476,8 @@ window.renderExtras = function renderExtras(c) {
   if (!data) return;
   c = c || calc();
   applyPrivacy(); applyCalm(); applyTheme();
-  try { renderAlertBar(computeAlerts(c)); } catch (err) { console.error('alerts', err); }
+  // 股價還沒載入前，持股市值都是 0、總資產算不準，會冒出「佔淨資產 150%」這種假警示；等第一次報價回來再算
+  try { renderAlertBar(lastUpdate ? computeAlerts(c) : []); } catch (err) { console.error('alerts', err); }
   // 每一頁只有自己的區塊；不在這一頁的直接略過
   const parts = [
     ['progressBox', () => renderProgress(c)], ['planSummary', renderPlanSummary], ['eventsBox', () => renderEvents(c)],

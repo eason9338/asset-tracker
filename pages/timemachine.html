@@ -1,25 +1,25 @@
 <!-- 資產時光機：拖動時間，看任何一天的資產、持股和發生的事 -->
-<div class="col span-12">
+<div class="col span-12 tm-sticky">
   <div class="card tm-card" id="tmControls"></div>
 </div>
-<div class="col span-8">
+<div class="col span-7">
   <div class="card">
-    <div id="tmStats"></div>
-    <div class="chart-box tm-chart" id="tmChart"></div>
-    <div class="note">藍線是總資產，灰色虛線是投入的本金；點或拖動走勢圖也可以跳到那一天。鍵盤 ← → 一天一天走，空白鍵播放。</div>
-  </div>
-  <div class="card">
-    <div class="card-head"><h2>那天的持股</h2></div>
+    <div class="card-head"><h2>那天的持股</h2><span class="card-note" id="tmHoldNote"></span></div>
     <div class="chart-box tm-holdmap" id="tmTreemap"></div>
-  </div>
-</div>
-<div class="col span-4">
-  <div class="card">
-    <div class="card-head"><h2>那天發生的事</h2></div>
-    <div id="tmEvents"></div>
   </div>
   <div class="card">
     <div class="card-head"><h2>持股明細</h2></div>
     <div id="tmHoldings"></div>
+  </div>
+</div>
+<div class="col span-5">
+  <div class="card">
+    <div id="tmStats"></div>
+    <div class="chart-box tm-chart" id="tmChart"></div>
+    <div class="note">藍線是總資產，灰色虛線是投入的本金；點或拖動走勢圖也能跳到那一天。</div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>那天發生的事</h2></div>
+    <div id="tmEvents"></div>
   </div>
 </div>

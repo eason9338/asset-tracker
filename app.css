@@ -573,19 +573,23 @@ a.sym-link:hover { color: var(--accent); text-decoration: underline; }
 .uni-diff { font-size: var(--fs-sm); color: var(--text-2); }
 .chart-tip .dot { width: 8px; height: 8px; }
 
-/* ---- 資產時光機 ---- */
-.tm-card { display: flex; flex-direction: column; gap: 10px; }
-.tm-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.tm-date b { font-size: 26px; font-weight: 650; letter-spacing: -.01em; }
-.tm-date .sub { font-size: var(--fs); margin-top: 2px; }
-.tm-btns { display: flex; align-items: center; gap: 6px; }
-.tm-play { min-width: 96px; }
-.tm-slider { width: 100%; accent-color: var(--accent); margin: 6px 0 0; }
-.tm-years { position: relative; height: 16px; margin: 0 8px; }
+/* ---- 資產時光機：控制列黏在上方，往下捲也能拖時間 ---- */
+.col.tm-sticky { position: sticky; top: 10px; z-index: 25; }
+.tm-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 18px; box-shadow: var(--shadow); }
+.tm-row { display: grid; grid-template-columns: 230px minmax(0, 1fr) auto; gap: 22px; align-items: center; }
+.tm-date b { display: block; font-size: 20px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap; }
+.tm-date .sub { font-size: var(--fs-sm); }
+.tm-track { position: relative; padding-bottom: 14px; }
+.tm-slider { width: 100%; accent-color: var(--accent); margin: 0; }
+.tm-years { position: absolute; left: 8px; right: 8px; bottom: 0; height: 14px; }
 .tm-years span { position: absolute; transform: translateX(-50%); font-size: var(--fs-xs); color: var(--text-3); }
-.tm-jumps button { font-size: var(--fs-sm); }
-.chart-box.tm-chart { height: 260px; margin-top: 4px; }
-.chart-box.tm-holdmap { height: 260px; border-radius: var(--r-md); overflow: hidden; }
+.tm-btns { display: flex; align-items: center; gap: 6px; }
+.tm-play { min-width: 92px; }
+.tm-jumps { align-items: center; }
+.tm-jumps button { font-size: var(--fs-sm); padding: 3px 10px; }
+.tm-jumps .sub { display: inline; margin-left: auto; }
+.chart-box.tm-chart { height: 200px; margin-top: 4px; }
+.chart-box.tm-holdmap { height: 340px; border-radius: var(--r-md); overflow: hidden; }
 .tm-ev { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: var(--fs); line-height: 1.5; }
 .tm-ev:last-child { border-bottom: 0; }
 .tm-ev .badge { flex-shrink: 0; }

@@ -140,7 +140,7 @@ function renderPersona() {
 
 // ================= 平行宇宙 =================
 let uRange = '0';
-const U_COLORS = { real: 'var(--accent)', voo: 'var(--s2)', qqq: 'var(--s3)', cash: 'var(--text-3)', nolong: 'var(--s4)', nolev: 'var(--c-semi)' };
+const U_COLORS = { real: 'var(--accent)', voo: 'var(--s2)', qqq: 'var(--s3)', noshort: 'var(--c-health)', nolong: 'var(--s4)', nolev: 'var(--c-semi)' };
 function universes() {
   const h = data.history.filter(x => x.usd > 0); if (h.length < 2 || !bench) return null;
   const h0 = h[0], flows = externalFlows().filter(f => f.date > h0.date).sort((a, b) => a.date.localeCompare(b.date));
@@ -148,10 +148,6 @@ function universes() {
   // 全買指數：開始那天的資產全部買進，之後每筆入金當天買（出金就賣）
   const buyHold = sym => { if (px(sym, h0.date) == null) return null; let sh = h0.usd / px(sym, h0.date), i = 0;
     return h.map(x => { while (i < flows.length && flows[i].date <= x.date) { sh += flows[i].usd / px(sym, flows[i].date); i++; } return sh * px(sym, x.date); }); };
-  // 全放短債：每天照 13 週國庫券利率計息
-  const cashU = (() => { let v = h0.usd, i = 0, prev = h0.date;
-    return h.map(x => { const rate = (px('^IRX', x.date) ?? 4) / 100; v *= 1 + rate * days(prev, x.date) / 365; prev = x.date;
-      while (i < flows.length && flows[i].date <= x.date) { v += flows[i].usd; i++; } return v; }); })();
   // 拿掉某一類交易的已實現損益（那些錢當作一直放著沒動）
   const st = realizedStats();
   const without = pick => { const evs = [...st.stockEvents.map(e => ({ ...e, opt: false })), ...st.optEvents.map(e => ({ ...e, opt: true }))].filter(pick).sort((a, b) => a.date.localeCompare(b.date));
@@ -161,8 +157,8 @@ function universes() {
     { id: 'real', name: '真實的你', v: h.map(x => x.usd), story: '現在這條路' },
     { id: 'voo', name: '全買 S&P 500', v: buyHold('VOO'), story: '每一筆入金都直接買 VOO，從來不交易' },
     { id: 'qqq', name: '全買 Nasdaq 100', v: buyHold('QQQ'), story: '每一筆入金都直接買 QQQ，從來不交易' },
-    { id: 'cash', name: '全放短債', v: cashU, story: '錢都放國庫券領利息，一點風險都不碰' },
     { id: 'nolong', name: '沒做選擇權買方', v: without(e => e.opt && e.side === 'long'), story: '其他照舊，只是從來沒買過 call、put' },
+    { id: 'noshort', name: '沒做選擇權賣方', v: without(e => e.opt && e.side === 'short'), story: '其他照舊，只是從來沒賣過 call、put' },
     { id: 'nolev', name: '沒碰槓桿 ETF', v: without(e => isLev(e.opt ? occ(e.sym)?.root : e.sym)), story: '其他照舊，只是沒買過槓桿 ETF 和它們的選擇權' },
   ].filter(u => u.v) };
 }
@@ -193,7 +189,7 @@ function renderUniverse() {
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
     ${[0, 0.5, 1].map(f => min + (max - min) * f).map(t => `<line x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" stroke-dasharray="2 4"/><text class="axis-text" x="${padL - 8}" y="${y(t) + 4}" text-anchor="end">${k(t)}</text>`).join('')}
     <text class="axis-text" x="${padL}" y="${H - 4}">${ds[0]}</text><text class="axis-text" x="${W - padR}" y="${H - 4}" text-anchor="end">${ds.at(-1)}</text>
-    ${[...series].reverse().map(s => `<path d="${line(s)}" fill="none" stroke="${U_COLORS[s.id]}" stroke-width="${s.id === 'real' ? 2.6 : 1.5}" ${['cash', 'nolong', 'nolev'].includes(s.id) ? 'stroke-dasharray="5 4"' : ''} stroke-linejoin="round"/>`).join('')}
+    ${[...series].reverse().map(s => `<path d="${line(s)}" fill="none" stroke="${U_COLORS[s.id]}" stroke-width="${s.id === 'real' ? 2.6 : 1.5}" ${['noshort', 'nolong', 'nolev'].includes(s.id) ? 'stroke-dasharray="5 4"' : ''} stroke-linejoin="round"/>`).join('')}
     <line class="xc" y1="${padT}" y2="${H - padB}" stroke="var(--text-3)" visibility="hidden"/>
     <rect x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent" class="xh"/>
   </svg><div class="chart-tip" hidden></div>`;
@@ -253,14 +249,14 @@ function tmBuild(M) {
   const n = M.dates.length;
   const jumps = [['開戶那天', 0], ...[...new Set(M.dates.map(d => d.slice(0, 4)))].slice(1).map(y => [`${y} 年初`, M.dates.findIndex(d => d.startsWith(y))]),
     ['最高點', M.hist.reduce((b, x, i) => x.usd > M.hist[b].usd ? i : b, 0)], ['今天', n - 1]];
-  el('tmControls').innerHTML = `<div class="tm-top">
+  el('tmControls').innerHTML = `<div class="tm-row">
       <div class="tm-date"><b id="tmDate"></b><span class="sub" id="tmDay"></span></div>
+      <div class="tm-track"><input type="range" class="tm-slider" id="tmSlider" min="0" max="${n - 1}" value="${TM.i}">
+        <div class="tm-years">${[...new Set(M.dates.map(d => d.slice(0, 4)))].map(y => { const i = M.dates.findIndex(d => d.startsWith(y)); return `<span style="left:${i / (n - 1) * 100}%">${y}</span>`; }).join('')}</div></div>
       <div class="tm-btns"><button class="ghost" data-tm="-1" title="前一天（←）">◀</button><button class="primary tm-play" data-tm="play" id="tmPlay">▶ 播放</button>
         <button class="ghost" data-tm="1" title="後一天（→）">▶</button>${UI.seg('tmspeed', [['1', '1×'], ['4', '4×']], TM.speed)}</div>
     </div>
-    <input type="range" class="tm-slider" id="tmSlider" min="0" max="${n - 1}" value="${TM.i}">
-    <div class="tm-years">${[...new Set(M.dates.map(d => d.slice(0, 4)))].map(y => { const i = M.dates.findIndex(d => d.startsWith(y)); return `<span style="left:${i / (n - 1) * 100}%">${y}</span>`; }).join('')}</div>
-    <div class="chips tm-jumps">${jumps.map(([t, i]) => `<button data-tmj="${i}">${t}</button>`).join('')}</div>`;
+    <div class="chips tm-jumps">${jumps.map(([t, i]) => `<button data-tmj="${i}">${t}</button>`).join('')}<span class="sub">鍵盤 ← → 一天一天走，空白鍵播放</span></div>`;
   // 走勢圖
   const box = el('tmChart'), W = box.clientWidth, H = box.clientHeight, padL = 56, padR = 10, padT = 10, padB = 20;
   const vals = M.hist.map(x => x.usd), pv = M.dates.map(d => M.princ[d] ?? 0);
@@ -330,6 +326,7 @@ function tmUpdate() {
         ${mid ? `<b style="font-size:${big ? Math.min(18, 11 + Math.sqrt(t.w * t.h) / 18) : 11}px">${esc(t.key)}</b>` : ''}${big ? `<span style="color:inherit;opacity:.85">${pctPlain(t.v / tot, 1)}</span>` : ''}</div>`;
     }).join('') + (TM.prices ? '' : '<div class="tm-loading">股價載入中，先用成交價估算</div>');
   }
+  el('tmHoldNote').innerHTML = rows.length ? `${rows.length} 檔・持股市值 ${money(usd0(tot))}` : '';
   el('tmHoldings').innerHTML = (rows.length ? `<div class="tm-hold">${rows.map(r => `<div class="kv"><span><b>${esc(r.s)}</b> <span class="muted">${fmtShares(r.q)} 股</span></span><span class="num">${r.v == null ? '—' : usd0(r.v)}</span></div>`).join('')}</div>` : '')
     + (opts.length ? `<div class="kv-title" style="margin-top:10px">選擇權</div>${opts.map(([s, q]) => `<div class="kv"><span>${esc(optName(s))}</span><span>${q > 0 ? '買' : '賣'} ${Math.abs(q)} 口</span></div>`).join('')}` : '');
   // 那天發生的事
