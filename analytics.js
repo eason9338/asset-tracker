@@ -240,7 +240,7 @@ function renderEvents(c) {
     return `<div class="ev-row"><span class="badge ${e.kind === '財報' ? 'bad' : ''}">${e.kind}</span>
       <div class="ev-main"><b>${e.title}</b><span class="sub">${esc(e.when)}${e.sub ? '・' + e.sub : ''}</span></div>
       <div class="ev-days num">${d <= 0 ? '今天' : `還有 ${d} 天`}</div></div>`;
-  }).join('') + `</div><div class="note">追蹤你直接持有的標的，以及 ETF 拆開後佔淨資產 ${EVENT_MIN * 100}% 以上的公司。財報與配息日期來自 Yahoo；財報當天股價和選擇權的波動通常最大。</div>`;
+  }).join('') + `</div>`;
 }
 
 // ============ 警示 ============
@@ -370,7 +370,7 @@ function renderMetrics() {
   for (const x of rets) { idx *= 1 + x.r; top = Math.max(top, idx); dd.push({ x: +new Date(x.date), y: (idx / top - 1) * 100, label: x.date, d: x.date }); }
   dd.at(-1).label = to;
   lineChart(el('ddBox'), dd, { fmtY: v => v.toFixed(0) + '%', fmtTip: p => `${p.d}<br>距高點 <b>${p.y.toFixed(2)}%</b>`, color: 'var(--down)', zero: true });
-  el('metricsNote').textContent = '回撤圖在左邊：每天距離之前最高點跌了多少（時間加權，不受入金影響）。夏普、索提諾用日報酬年化；年化數字在期間短於 3 個月時不顯示。';
+  
 }
 
 // ============ 每月報酬 ============
@@ -404,8 +404,7 @@ function renderHeat() {
       return `<tr><td class="lbl"><b>${y}</b></td>${Array.from({ length: 12 }, (_, i) => cell(me, `${y}-${String(i + 1).padStart(2, '0')}`, true)).join('')}
           <td class="num heat-cell" style="${color(yt)}" title="點一下看 ${y} 年的交易紀錄"><a href="/trades?y=${y}"><b>${pct(yt, 1)}</b></a></td></tr>
         <tr class="bm"><td class="lbl">Nasdaq 100</td>${Array.from({ length: 12 }, (_, i) => cell(qq, `${y}-${String(i + 1).padStart(2, '0')}`, false)).join('')}<td class="num">${pct(qt, 1)}</td></tr>`;
-    }).join('')}</tbody></table></div>
-    <div class="note">${outsideAsFlow() ? '目前把帳外獲利當入金計算（上方開關）。' : ''}每格是那個月的時間加權報酬；顏色越深代表漲跌越大。灰色那一列是同期 Nasdaq 100，方便比較。點任何一格可以看那個月的交易紀錄。</div>`;
+    }).join('')}</tbody></table></div>`;
 }
 
 // ============ 個股曝險總覽：把 ETF 拆成成分股 ============
@@ -501,10 +500,7 @@ function renderExposure(c) {
     ${pending ? '<div class="sub" style="margin-bottom:6px">正在抓 ETF 成分股…</div>' : ''}
     ${shown.map(g => row(g)).join('')}
     ${stocks.length > 15 ? `<button class="ghost" data-expo-all="1" style="margin-top:8px">${expoAll ? '只看前 15 家' : `顯示全部 ${stocks.length} 家`}</button>` : ''}
-    ${other.length ? `<div class="sub" style="margin:14px 0 2px">不是個股的部分</div>${other.map(g => row(g, true)).join('')}` : ''}
-    <div class="note">曝險＝市值 × 槓桿倍數。ETF 依成分股權重拆開，例如 100 元的 VOO 裡約有 ${(etfData.VOO?.top?.[0]?.w ?? 8).toFixed(1)} 元是 ${esc(etfData.VOO?.top?.[0]?.sym || 'NVDA')}；
-      槓桿、反向 ETF 用同一個指數的 ETF 成分股乘上倍數；GOOG／GOOGL 這類同公司不同股別合併計算。買方選擇權用 delta 換算${shorts ? `；賣方選擇權（${shorts} 筆）跟槓桿率一樣不計入` : ''}。
-      成分股資料來自 Zacks，每天更新一次。</div>`;
+    ${other.length ? `<div class="sub" style="margin:14px 0 2px">不是個股的部分</div>${other.map(g => row(g, true)).join('')}` : ''}`;
 }
 function renderEtfView(c) {
   const box = el('etfBox'); if (!box) return;
@@ -532,8 +528,7 @@ function renderEtfView(c) {
     <div class="sub" style="margin:8px 0">共 ${d.count} 檔持股，前 ${d.top.length} 大合計 ${d.topSum.toFixed(1)}%${mine ? `・你透過 ${esc(etfView)} 的曝險 <span class="money">${usd0(mine)}</span>` : ''}</div>
     <div class="table-wrap"><table class="table etf-table"><thead><tr><th>#</th><th class="l">代號</th><th class="l">公司</th><th>每 100 元裡</th>${mine ? '<th>你的曝險</th>' : ''}</tr></thead>
       <tbody>${top.map((h, i) => `<tr><td class="rank">${i + 1}</td><td class="l"><b>${esc(h.sym || '—')}</b></td><td class="l name">${esc(titleCase(h.name))}</td>
-        <td class="w" style="--w:${(h.w / maxW * 100).toFixed(1)}%">${h.w.toFixed(2)} 元</td>${mine ? `<td><span class="money">${usd0(mine * h.w / 100)}</span></td>` : ''}</tr>`).join('')}</tbody></table></div>
-    <div class="note">資料來自 Zacks（${new Date(d.fetched * 1000).toLocaleDateString('zh-TW')} 抓取${d.stale ? '，今天抓不到，先用上次的資料' : ''}），ETF 的持股每天會小幅變動。</div>`;
+        <td class="w" style="--w:${(h.w / maxW * 100).toFixed(1)}%">${h.w.toFixed(2)} 元</td>${mine ? `<td><span class="money">${usd0(mine * h.w / 100)}</span></td>` : ''}</tr>`).join('')}</tbody></table></div>`;
 }
 
 // ============ 交易計畫：新交易先寫計畫，等滿交易日才下單 ============
@@ -852,8 +847,7 @@ function renderOptRisk(c) {
   box.innerHTML = `<div class="table-wrap"><table class="table"><thead><tr>
       <th class="l">合約</th><th>到期</th><th>標的價</th><th class="l">價內外</th><th>損益兩平</th><th>到期價內機率</th><th>每天時間價值</th><th>Delta</th><th class="l">被指派時</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
-    <div class="note">每天時間價值（theta）合計 <b class="num ${cls(thetaSum)}">${usd(thetaSum, { sign: true })}</b>：正的代表時間經過對你有利（賣方），負的代表每天在流失（買方）。
-      價內機率、theta 用 Black-Scholes 估算，隱含波動率由 Yahoo 報價反推（延遲約 20 分鐘）。損益兩平以開倉權利金計算。</div>`;
+    <div class="sub" style="margin-top:8px">每天時間價值合計 <b class="num ${cls(thetaSum)}">${usd(thetaSum, { sign: true })}</b></div>`;
 }
 
 // ============ 交易日記 ============
@@ -986,8 +980,7 @@ function renderAnalysis() {
     box.innerHTML = `<div class="table-wrap"><table class="table"><thead><tr><th class="l">標的</th><th>股票</th><th>股票損益</th><th>選擇權</th><th>選擇權損益</th><th>未實現</th><th>合計</th></tr></thead>
       <tbody>${keep.map(r => `<tr><td class="l"><a class="sym-link" href="/symbol?s=${encodeURIComponent(r.g)}"><b>${esc(grpName(r.g))}</b></a></td><td class="num">${cellW(r.s)}</td><td class="num ${cls(r.s.total)}">${r.s.n ? usd0(r.s.total, { sign: true }) : '—'}</td>
         <td class="num">${cellW(r.o)}</td><td class="num ${cls(r.o.total)}">${r.o.n ? usd0(r.o.total, { sign: true }) : '—'}</td><td class="num ${cls(r.u)}">${r.u == null ? '<span class="muted">—</span>' : usd0(r.u, { sign: true })}</td><td class="num ${cls(r.total)}"><b>${usd0(r.total, { sign: true })}</b></td></tr>`).join('')}</tbody></table></div>
-      ${rows.length > 12 ? `<div class="more-row"><button class="ghost" data-anaall="1">${anaShowAll ? '只顯示影響最大的 12 檔' : `顯示全部 ${rows.length} 檔`}</button></div>` : ''}
-      <div class="note">槓桿 ETF 與選擇權都併到標的本身計算（例如 GGLL、GOOGL 選擇權都算 Alphabet）。合計＝已實現＋還抱著的未實現。依合計排序；預設只列影響最大的 12 檔。</div>`;
+      ${rows.length > 12 ? `<div class="more-row"><button class="ghost" data-anaall="1">${anaShowAll ? '只顯示影響最大的 12 檔' : `顯示全部 ${rows.length} 檔`}</button></div>` : ''}`;
   } else if (anaView === 'open') {
     // 持有中：還沒賣掉的部位和未實現損益
     const op = openPositions(calc(), st), realized = st.stock + st.option + st.div + st.refund;
@@ -1004,21 +997,18 @@ function renderAnalysis() {
         <td class="num">${usd(r.avg)}</td><td class="num">${usd(r.price)}</td><td class="num">${usd0(r.value)}</td><td>${signed(r.unreal)}</td><td>${pctOf(r.pct)}</td>
         <td class="num">${r.days == null ? '—' : `${Math.round(r.days)} 天`}</td></tr>`).join('')
       + op.opts.map(o => `<tr><td class="l">${link(o.g, optName(o.sym))}</td><td class="num">${o.qty} 口</td><td class="num">${usd(Math.abs(o.avg))}</td>
-        <td class="num">${o.price == null ? '—' : usd(o.price)}</td><td class="num">${usd0(o.value)}</td><td>${signed(o.unreal)}</td><td>${pctOf(o.pct)}</td><td class="num">—</td></tr>`).join(''))
-    + UI.note('未實現＝目前市值 − 成本：股票用券商的平均成本，選擇權用開倉時的權利金（賣方的市值是負的）。持有天數是還沒賣掉的那幾批平均買了多久（先進先出）。');
+        <td class="num">${o.price == null ? '—' : usd(o.price)}</td><td class="num">${usd0(o.value)}</td><td>${signed(o.unreal)}</td><td>${pctOf(o.pct)}</td><td class="num">—</td></tr>`).join(''));
   } else if (anaView === 'hold') {
     const ev = stockHoldingEvents(st);
     box.innerHTML = `<div class="ana-cols">${bucketTable('股票：依持有天數（先進先出）', [
       ['當天沖銷', d => d < 0.5], ['1–3 天', d => d >= 0.5 && d < 3.5], ['4–10 天', d => d >= 3.5 && d < 10.5],
       ['11–30 天', d => d >= 10.5 && d < 30.5], ['31–90 天', d => d >= 30.5 && d < 90.5], ['90 天以上', d => d >= 90.5]], ev, e => e.hold)}
-      ${bucketTable('選擇權：依持有天數', [['當天', d => d < 0.5], ['1–3 天', d => d >= 0.5 && d < 3.5], ['4–10 天', d => d >= 3.5 && d < 10.5], ['11 天以上', d => d >= 10.5]], optionLifeEvents(st), e => e.hold)}</div>
-      <div class="note">持有天數用先進先出配對買進日期（同一筆賣出對到多批買進時取加權平均）；每筆的損益仍用平均成本法，跟上方已實現損益一致。紀錄開始前就持有的股票，從紀錄開始那天起算。</div>`;
+      ${bucketTable('選擇權：依持有天數', [['當天', d => d < 0.5], ['1–3 天', d => d >= 0.5 && d < 3.5], ['4–10 天', d => d >= 3.5 && d < 10.5], ['11 天以上', d => d >= 10.5]], optionLifeEvents(st), e => e.hold)}</div>`;
   } else if (anaView === 'dte') {
     const ev = optionLifeEvents(st);
     const B = [['0–2 天', d => d <= 2], ['3–7 天', d => d >= 3 && d <= 7], ['8–30 天', d => d >= 8 && d <= 30], ['31–90 天', d => d >= 31 && d <= 90], ['90 天以上', d => d > 90]];
     box.innerHTML = `<div class="ana-cols">${bucketTable('買方：開倉時距離到期天數', B, ev.filter(e => e.side === 'long'), e => e.dte)}
-      ${bucketTable('賣方：開倉時距離到期天數', B, ev.filter(e => e.side === 'short'), e => e.dte)}</div>
-      <div class="note">看你擅長哪種天期：例如短天期賣方（0–7 天）是不是真的穩定賺時間價值。同一合約分批開倉時，開倉日取加權平均。</div>`;
+      ${bucketTable('賣方：開倉時距離到期天數', B, ev.filter(e => e.side === 'short'), e => e.dte)}</div>`;
   } else {
     const ev = [...st.stockEvents.filter(e => !isCashLike(e.sym)).map(e => ({ ...e, k: 'stock' })), ...st.optEvents.map(e => ({ ...e, k: 'opt' }))];
     const edges = [-Infinity, -500, -200, -100, -50, 0, 50, 100, 200, 500, Infinity];
@@ -1036,8 +1026,7 @@ function renderAnalysis() {
         { k: `最大單筆虧損`, v: `${all.worst ? usd0(all.worst.r, { sign: true }) : '—'}`, s: `${all.worst ? esc(all.worst.sym) + ' ' + all.worst.date : ''}`, vcls: `num down` }])}
       ${bins.map(b => `<div class="hbar-row"><div class="hbar-name" style="font-weight:400">${b.label}</div>
         <div class="hbar-track"><i class="${b.neg ? 'neg' : 'pos'}" style="left:0;width:${(b.s + b.o) / max * 100}%"></i></div>
-        <div class="hbar-val num">${b.s + b.o} 筆<span class="sub">股票 ${b.s}・選擇權 ${b.o}</span></div></div>`).join('')}
-      <div class="note">每一筆已實現交易落在哪個損益區間。左邊（虧損）的長條如果比右邊（獲利）的長很多，代表常常小賺大賠。</div>`;
+        <div class="hbar-val num">${b.s + b.o} 筆<span class="sub">股票 ${b.s}・選擇權 ${b.o}</span></div></div>`).join('')}`;
   }
 }
 
@@ -1135,8 +1124,7 @@ function renderFees() {
       { k: `選擇權手續費`, v: `${usd(tot('opt'))}`, s: `${tot('c')} 口，平均每口 <span class="money">${usd(tot('c') ? tot('opt') / tot('c') : 0)}</span>` },
       { k: `融資利息`, v: `${usd(tot('int'))}`, s: `${months.filter(k => m[k].int).length ? `${months.filter(k => m[k].int).length} 個月有被收` : '紀錄中沒有'}` }])}
     ${feeTable(months.slice().reverse().slice(0, 12))}
-    ${months.length > 12 ? `<details class="more" style="margin-top:8px"><summary>更早的月份（${months.length - 12}）</summary>${feeTable(months.slice().reverse().slice(12))}</details>` : ''}
-    <div class="note">成本＝成交金額與實際收付金額的差（券商手續費、SEC／FINRA 規費等），由券商紀錄推算；融資利息是券商每月收的「融資利息費用」。買賣價差、匯差不在其中。</div>`;
+    ${months.length > 12 ? `<details class="more" style="margin-top:8px"><summary>更早的月份（${months.length - 12}）</summary>${feeTable(months.slice().reverse().slice(12))}</details>` : ''}`;
 }
 
 // ============ 持有天數與損益：每一筆已實現交易一個點 ============
@@ -1180,8 +1168,7 @@ function renderHoldScatter() {
   hit.addEventListener('pointerleave', () => { ring.setAttribute('visibility', 'hidden'); tip.hidden = true; });
   // 下面直接回答：抱久是不是比較好
   const bucket = (t, f) => { const w = winStats(ev.filter(e => f(e.hold))); return w.n ? { k: t, v: usd(w.total / w.n, { sign: true }), vcls: `num ${cls(w.total)}`, s: `平均每筆・${w.n} 筆・勝率 ${pctPlain(w.rate)}` } : null; };
-  el('holdScatterSum').innerHTML = UI.tiles([bucket('持有 7 天以內', d => d < 7.5), bucket('持有 8–30 天', d => d >= 7.5 && d < 30.5), bucket('持有 30 天以上', d => d >= 30.5)])
-    + UI.note('每個點是一筆已實現的交易（藍色股票、橘色選擇權）；空心的點損益太大，壓在上下邊緣。持有天數用先進先出配對。');
+  el('holdScatterSum').innerHTML = UI.tiles([bucket('持有 7 天以內', d => d < 7.5), bucket('持有 8–30 天', d => d >= 7.5 && d < 30.5), bucket('持有 30 天以上', d => d >= 30.5)]);
 }
 
 // ============ 持倉配置方塊圖：ETF 拆成成分股後，每家公司佔多少 ============
@@ -1335,8 +1322,7 @@ function renderYearly(c) {
     <tbody>${rows.map(r => `<tr><td class="l"><b>${r.y}</b>${r.isNow ? '<span class="sub">至今</span>' : r.from ? `<span class="sub">${+r.from.slice(5, 7)}/${+r.from.slice(8)} 開始</span>` : ''}</td>
       <td>${money(r.start)}</td><td>${money(r.flows)}</td><td>${money(r.end)}</td><td><b>${signed(r.gain)}</b></td>
       <td><b class="num ${cls(r.twr)}">${pct(r.twr)}</b></td><td><span class="num">${r.spx == null ? '—' : pct(r.spx)}</span></td>
-      <td class="sep">${signed(r.stock)}</td><td>${signed(r.option)}</td><td>${signed(r.div)}</td><td>${money(r.fee)}</td></tr>`).join('')}</tbody></table></div>
-    <div class="note">賺到的錢＝年底 − 年初 − 淨入金（入金減出金）；報酬率是時間加權${outsideAsFlow() ? '，帳外獲利當入金' : ''}。今年的年底資產是目前的總資產。</div>`;
+      <td class="sep">${signed(r.stock)}</td><td>${signed(r.option)}</td><td>${signed(r.div)}</td><td>${money(r.fee)}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
 // ============ 標的查詢：某個標的的所有紀錄、勝率與買賣點 ============
