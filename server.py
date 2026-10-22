@@ -422,6 +422,9 @@ except (OSError, ValueError):
     _etf_cache = {}
 
 
+ETF_TOP = 100   # 每檔 ETF 拆前幾大成分股
+
+
 def _zacks_holdings(sym):
     url = f"https://www.zacks.com/funds/etf/{urllib.parse.quote(sym)}/holding"
     raw = urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20).read()
@@ -441,14 +444,14 @@ def _zacks_holdings(sym):
     stock_w, all_w = sum(x["w"] for x in rows if x["sym"]), sum(x["w"] for x in rows)
     # 大多是交換合約、選擇權的（槓桿 ETF、BOXX）不拆成分股
     return {"count": len(rows), "stocks": all_w > 0 and stock_w >= 0.8 * all_w,
-            "top": rows[:50], "topSum": round(sum(x["w"] for x in rows[:50]), 2), "source": "Zacks"}
+            "top": rows[:ETF_TOP], "topSum": round(sum(x["w"] for x in rows[:ETF_TOP]), 2), "source": "Zacks", "n": ETF_TOP}
 
 
 def fetch_etf_holdings(symbols):
     now, out, todo = time.time(), {}, []
     for s in symbols:
         hit = _etf_cache.get(s)
-        if hit and now - hit["ts"] < ETF_TTL:
+        if hit and now - hit["ts"] < ETF_TTL and hit["data"].get("n") == ETF_TOP:   # 改過拆幾檔就重抓
             out[s] = {**hit["data"], "fetched": hit["ts"]}
         else:
             todo.append(s)
@@ -744,7 +747,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, fetch_etf_holdings(symbols) if symbols else {})
         if u.path == "/api/sectors":
             q = urllib.parse.parse_qs(u.query).get("symbols", [""])[0]
-            symbols = [s.strip().upper() for s in q.split(",") if re.fullmatch(r"[A-Za-z.\-]{1,10}", s.strip())][:120]
+            symbols = [s.strip().upper() for s in q.split(",") if re.fullmatch(r"[A-Za-z.\-]{1,10}", s.strip())][:300]
             return self._send(200, fetch_sectors(symbols) if symbols else {})
         if u.path == "/api/history":
             qs = urllib.parse.parse_qs(u.query)

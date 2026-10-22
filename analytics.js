@@ -471,7 +471,7 @@ function stockExposure(c) {
       names[k] ??= h.name;
       add(stocks, k, GROUP_NAME[k] || titleCase(h.name), p.val * h.w / 100, via);
     }
-    if (inTop < 99.9) add(other, 'REST', 'ETF 前 50 名以外的持股', p.val * (100 - inTop) / 100, via);
+    if (inTop < 99.9) add(other, 'REST', 'ETF 前 100 名以外的持股', p.val * (100 - inTop) / 100, via);
   }
   const sort = o => Object.values(o).sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
   const shorts = c.optRows.filter(o => o.qty < 0).length;
@@ -496,7 +496,7 @@ function renderExposure(c) {
   const shown = expoAll ? stocks : stocks.slice(0, 15);
   box.innerHTML = `${UI.tiles([
       { k: `個股曝險合計`, v: `${usd0(sum)}`, s: `淨資產的 <span class="money">${pctPlain(sum / eq)}</span>` },
-      { k: `涵蓋公司`, v: `${stocks.length} 家`, s: `ETF 只拆前 50 大持股`, vcls: `` },
+      { k: `涵蓋公司`, v: `${stocks.length} 家`, s: `ETF 拆前 100 大持股`, vcls: `` },
       { k: `前 5 大公司合計`, v: `${pctPlain(top5 / eq)}`, s: `佔淨資產` }])}
     ${pending ? '<div class="sub" style="margin-bottom:6px">正在抓 ETF 成分股…</div>' : ''}
     ${shown.map(g => row(g)).join('')}
@@ -1199,7 +1199,10 @@ function sectorOf(sym) {
 async function loadSectors(syms) {
   const todo = syms.filter(s => !sectorAsked.has(s)); if (!todo.length) return;
   todo.forEach(s => sectorAsked.add(s));
-  try { Object.assign(sectorData, await (await fetch('/api/sectors?symbols=' + encodeURIComponent(todo.join(',')))).json()); } catch { /* 抓不到就先用預設色 */ }
+  for (let i = 0; i < todo.length; i += 100) {   // 分批查，查完一批就先畫，不用等全部
+    try { Object.assign(sectorData, await (await fetch('/api/sectors?symbols=' + encodeURIComponent(todo.slice(i, i + 100).join(',')))).json()); } catch { /* 抓不到就先放「其他公司」 */ }
+    if (i + 100 < todo.length) renderTreemap(calc());
+  }
   renderTreemap(calc());
 }
 function squarify(items, rect) {
@@ -1236,14 +1239,17 @@ function renderTreemap(c) {
   const box = el('treemapBox'); if (!box || box.clientWidth === 0) return;
   document.querySelectorAll('[data-tmv]').forEach(b => b.classList.toggle('on', b.dataset.tmv === tmView));
   const { stocks, other, pending } = stockExposure(c), eq = c.totalUSD;
-  // 方塊：每家公司一塊；零碎的（比較小的公司、ETF 前 50 名以外）合成「其他公司」；含現金時 BOXX 和現金合成「現金與短債」
+  // 方塊：每家公司一塊；零碎的小公司依產業在各區合成「其他 N 家」（依大小時合成一塊「其他公司」）；含現金時 BOXX 和現金合成「現金與短債」
   let items = stocks.filter(g => g.total > 0).map(g => ({ key: g.key, name: g.name, v: g.total, link: true }));
   items.sort((a, b) => b.v - a.v);
   const all = tmView === 'all';
   let restV = all ? other.filter(g => g.key === 'REST').reduce((a, g) => a + g.total, 0) : 0;
   const sum0 = items.reduce((a, n) => a + n.v, 0) + restV;
-  const keep = items.filter((n, i) => i < 40 && n.v / sum0 > 0.004);
-  restV += items.filter(n => !keep.includes(n)).reduce((a, n) => a + n.v, 0);
+  const keep = items.filter((n, i) => i < 60 && n.v / sum0 > 0.0025), small = items.filter(n => !keep.includes(n));
+  loadSectors(items.map(n => n.key));
+  // 依產業時：查得到產業的小公司放回各自的產業區；查不到的才算進灰色的「其他公司」
+  const smallBy = {};
+  for (const n of small) { const cat = tmLayout === 'sector' ? sectorOf(n.key) : null; if (cat) (smallBy[cat] ??= []).push(n); else restV += n.v; }
   if (restV > 0) keep.push({ key: '其他公司', v: restV, gray: true });
   if (all) {
     for (const g of other.filter(g => g.total > 0 && !['REST', 'CASH'].includes(g.key))) keep.push({ key: grpName(g.key), v: g.total, gray: true });   // 黃金、比特幣這類
@@ -1253,7 +1259,6 @@ function renderTreemap(c) {
   keep.sort((a, b) => b.v - a.v);
   if (!keep.length) { box.innerHTML = UI.empty(pending ? '正在抓 ETF 成分股…' : '目前沒有持股'); return; }
   const base = keep.reduce((a, n) => a + n.v, 0);
-  loadSectors(keep.filter(n => n.link).map(n => n.key));
   // 先依產業分區（每區上面寫產業名稱），區裡面才是各家公司；公司方塊全部同一個顏色，只用分區表示產業
   const groups = {};
   for (const n of keep) {
@@ -1261,6 +1266,11 @@ function renderTreemap(c) {
     const cat = sectorOf(n.key) || 'other';
     (groups[cat] ??= { key: SECTORS.find(([k]) => k === cat)[1], cat, v: 0, kids: [] }).kids.push({ ...n, catName: SECTORS.find(([k]) => k === cat)[1] });
     groups[cat].v += n.v;
+  }
+  for (const [cat, ns] of Object.entries(smallBy)) {
+    const name = SECTORS.find(([k]) => k === cat)[1], v = ns.reduce((a, n) => a + n.v, 0);
+    (groups[cat] ??= { key: name, cat, v: 0, kids: [] }).kids.push({ key: `其他 ${ns.length} 家`, name: '例如 ' + ns.slice(0, 4).map(n => n.key).join('、'), v, catName: name, many: true });
+    groups[cat].v += v;
   }
   document.querySelectorAll('[data-tml]').forEach(b => b.classList.toggle('on', b.dataset.tml === tmLayout));
   // 依大小：不分區，全部照部位大小排；依產業：先分區
