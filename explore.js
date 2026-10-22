@@ -361,8 +361,8 @@ function tmUpdate() {
   else {
     const vMax = Math.max(...items.map(r => r.v)), W = tbox.clientWidth, H = tbox.clientHeight;
     // 絕對大小：整張圖＝開戶以來最大的那天；方塊群跟著那天的總曝險縮放，虛線框是那天的淨資產
-    // 縮放幅度壓小（邊長取 4 次方根，面積取平方根），少數超大槓桿的日子不會讓其他日子縮成一小塊
-    const ref = TM.prices ? tmRef(M) : null, k = x => ref ? Math.min(1, x / ref) ** 0.25 : 1, kE = k(h.usd), kX = k(expTotal);
+    // 縮放幅度壓小（邊長取 0.12 次方），少數超大槓桿的日子不會讓其他日子縮成一小塊
+    const ref = TM.prices ? tmRef(M) : null, k = x => ref ? Math.min(1, x / ref) ** 0.12 : 1, kE = k(h.usd), kX = k(expTotal);
     const area = { x: 0, y: H - H * kX, w: W * kX, h: H * kX };
     tbox.innerHTML = (ref ? `<div class="tm-equity" style="left:0;top:${H - H * kE}px;width:${W * kE}px;height:${H * kE}px"><div class="tm-eq-label">淨資產 ${money(usd0(h.usd))}</div></div>` : '')
       + squarify(items, area).map(t => {
