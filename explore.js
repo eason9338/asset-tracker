@@ -287,7 +287,7 @@ function tmPlay(on) {
   const b = el('tmPlay');
   if (on) {
     const M = tmModel(); if (TM.i >= M.dates.length - 1) TM.i = 0;
-    TM.playing = setInterval(() => { const M2 = tmModel(); if (TM.i >= M2.dates.length - 1) return tmPlay(false); tmGo(TM.i + TM.speed); }, 70);
+    TM.playing = setInterval(() => { const M2 = tmModel(); if (TM.i >= M2.dates.length - 1) return tmPlay(false); tmGo(TM.i + TM.speed); }, 250);   // 1× 每 0.25 秒走一個交易日
   }
   if (b) b.textContent = on ? '⏸ 暫停' : '▶ 播放';
 }
