@@ -1524,7 +1524,7 @@ document.addEventListener('click', e => {
     document.documentElement.dataset.theme = t; store.set('theme', t); applyTheme();
   }
   else if (b.id === 'calmBtn') { store.set('calm', isCalm() ? '0' : '1'); peek(false); applyCalm(); render(); }
-  else if (b.id === 'peekBtn') peek(!document.documentElement.classList.contains('peek'));
+  else if (b.id === 'peekBtn' || b.dataset.act === 'peek') peek(!document.documentElement.classList.contains('peek'));
   else if (b.dataset.mood) { jMood = b.dataset.mood; renderJournal(); }
   else if (b.dataset.pfAct) {
     const f = el('planForm'); f.querySelector('[data-pf="action"]').value = b.dataset.pfAct;

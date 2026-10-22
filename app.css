@@ -588,8 +588,13 @@ a.sym-link:hover { color: var(--accent); text-decoration: underline; }
 .tm-jumps { align-items: center; }
 .tm-jumps button { font-size: var(--fs-sm); padding: 3px 10px; }
 .tm-jumps .sub { display: inline; margin-left: auto; }
+/* 時光機這頁不放最上面的總資產列，空間留給方塊圖；平靜模式時「看一下」移到控制列 */
+body[data-page="timemachine"] .topbar { display: none; }
+body[data-page="timemachine"] #alertBar:not([hidden]) { margin-top: 0; margin-bottom: 0; }
+.tm-peek { display: none; }
+:root.calm .tm-peek { display: inline-block; }
 .chart-box.tm-chart { height: 200px; margin-top: 4px; }
-.chart-box.tm-holdmap { height: 340px; border-radius: var(--r-md); overflow: hidden; }
+.chart-box.tm-holdmap { height: 480px; border-radius: var(--r-md); overflow: hidden; background: var(--surface-2); }
 .tm-ev { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: var(--fs); line-height: 1.5; }
 .tm-ev:last-child { border-bottom: 0; }
 .tm-ev .badge { flex-shrink: 0; }
@@ -597,6 +602,9 @@ a.sym-link:hover { color: var(--accent); text-decoration: underline; }
 /* 每天的列表長度不同：固定高度、在裡面捲動，拖時間時整頁高度才不會一直變（不然頁面會上下跳） */
 #tmEvents, #tmHoldings { height: 280px; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
 #tmHoldNote { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; }
+.tm-equity { position: absolute; z-index: 2; border: 2px dashed var(--text-2); border-radius: 6px; pointer-events: none; }
+.tm-eq-label { position: absolute; top: 4px; right: 6px; font-size: var(--fs-xs); font-weight: 600; color: var(--text); white-space: nowrap; background: var(--surface); padding: 1px 8px; border-radius: 99px; border: 1px dashed var(--text-2); }
+.tm-scale { position: absolute; right: 8px; top: 6px; font-size: var(--fs-sm); color: var(--text-2); background: var(--surface); padding: 2px 10px; border-radius: 99px; border: 1px solid var(--border); }
 .tm-loading { position: absolute; right: 8px; bottom: 6px; font-size: var(--fs-xs); color: var(--text-3); background: var(--surface); padding: 2px 8px; border-radius: 99px; }
 @media (max-width: 1150px) { .trait-grid { grid-template-columns: 1fr; } }
 

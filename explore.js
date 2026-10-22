@@ -260,6 +260,23 @@ function tmOptExposure(M, sym, q, i) {
   const T = Math.max(days(d, o.exp) / 365, 1 / 365), vol = tmVol(o.root, d) || 0.5;
   return q * 100 * bsModel(S, o.strike, T, 0.04, vol, o.call).delta * S * levOf(o.root);
 }
+function tmItems(M, i) {
+  // 那天的方塊：股票（槓桿 ETF 乘倍數）、選擇權（delta 換算）；回傳每塊的曝險
+  const rows = Object.entries(M.snaps[i]).map(([s, q]) => {
+    const px = tmPrice(M, s, i), v = px != null ? q * px : null, lev = grp(s) === 'CASH' ? 1 : levOf(s);
+    return { s, q, v, exp: v == null ? null : v * lev, bear: lev < 0, lev };
+  }).filter(r => r.v == null || r.v > 0.5).sort((a, b) => (b.v ?? 0) - (a.v ?? 0));
+  const opts = M.optAt(M.dates[i]).map(([s, q]) => ({ s, q, exp: tmOptExposure(M, s, q, i) }));
+  return { rows, opts, total: rows.reduce((a, r) => a + Math.abs(r.exp || 0), 0) + opts.reduce((a, o) => a + Math.abs(o.exp || 0), 0) };
+}
+function tmRef(M) {
+  // 整張方塊圖代表的尺度：開戶以來最大的那天（曝險或淨資產取大的）；股價載入後算一次
+  if (TM.ref && TM.refN === M.dates.length) return TM.ref;
+  let ref = 0;
+  for (let i = 0; i < M.dates.length; i++) ref = Math.max(ref, tmItems(M, i).total, M.hist[i].usd);
+  TM.ref = ref * 1.02; TM.refN = M.dates.length;
+  return TM.ref;
+}
 function tmBuild(M) {
   // 只建一次：滑桿、快速跳轉、走勢圖（拖滑桿時只移動游標，不重畫）
   const n = M.dates.length;
@@ -272,7 +289,7 @@ function tmBuild(M) {
       <div class="tm-btns"><button class="ghost" data-tm="-1" title="前一天（←）">◀</button><button class="primary tm-play" data-tm="play" id="tmPlay">▶ 播放</button>
         <button class="ghost" data-tm="1" title="後一天（→）">▶</button>${UI.seg('tmspeed', [['1', '1×'], ['4', '4×']], TM.speed)}</div>
     </div>
-    <div class="chips tm-jumps">${jumps.map(([t, i]) => `<button data-tmj="${i}">${t}</button>`).join('')}<span class="sub">鍵盤 ← → 一天一天走，空白鍵播放</span></div>`;
+    <div class="chips tm-jumps">${jumps.map(([t, i]) => `<button data-tmj="${i}">${t}</button>`).join('')}<span class="sub">鍵盤 ← → 一天一天走，空白鍵播放</span><button class="ghost tm-peek" data-act="peek" title="暫時顯示數字和圖表">👁 看一下</button></div>`;
   // 走勢圖
   const box = el('tmChart'), W = box.clientWidth, H = box.clientHeight, padL = 56, padR = 10, padT = 10, padB = 20;
   const vals = M.hist.map(x => x.usd), pv = M.dates.map(d => M.princ[d] ?? 0);
@@ -327,14 +344,10 @@ function tmUpdate() {
     { k: '總資產', v: usd0(h.usd) },
     { k: '投入的本金', v: usd0(p) },
     { k: '賺到的錢', v: usd0(gain, { sign: true }), vcls: `num ${cls(gain)}`, s: p > 0 ? `本金的 ${money(pct(gain / p))}` : '' },
-    { k: '槓桿率', v: h.exp != null ? (h.exp / h.usd).toFixed(2) + 'x' : '—' }], 'cols-4');
+    { k: '槓桿率', v: h.exp != null ? (h.exp / h.usd).toFixed(2) + 'x' : '—' }], 'cols-2');
   // 那天的持股：方塊圖＋清單
   // 方塊大小＝曝險：股票用市值、槓桿 ETF 乘倍數（國庫券類照市值）、選擇權用 delta 換算
-  const snap = M.snaps[i], rows = Object.entries(snap).map(([s, q]) => {
-    const px = tmPrice(M, s, i), v = px != null ? q * px : null, lev = grp(s) === 'CASH' ? 1 : levOf(s);
-    return { s, q, v, exp: v == null ? null : v * lev, bear: lev < 0, lev };
-  }).filter(r => r.v == null || r.v > 0.5).sort((a, b) => (b.v ?? 0) - (a.v ?? 0));
-  const opts = M.optAt(d).map(([s, q]) => ({ s, q, exp: tmOptExposure(M, s, q, i) }));
+  const { rows, opts, total: expTotal } = tmItems(M, i);
   const tot = rows.reduce((a, r) => a + (r.v || 0), 0), optExp = opts.reduce((a, o) => a + (o.exp || 0), 0);
   const oc = s => occ(s), short = s => { const o = oc(s); return `${o.root} ${o.exp.slice(5).replace('-', '/')} ${o.strike}${o.call ? 'C' : 'P'}`; };
   const tbox = el('tmTreemap');
@@ -342,16 +355,21 @@ function tmUpdate() {
                  ...opts.filter(o => o.exp).map(o => ({ key: short(o.s), v: Math.abs(o.exp), opt: true, sub: `${o.q > 0 ? '買方' : '賣方'}${o.exp < 0 ? '・看空' : ''}` }))].sort((a, b) => b.v - a.v);
   if (!items.length) tbox.innerHTML = UI.empty('這天沒有持股');
   else {
-    const vMax = Math.max(...items.map(r => r.v));
-    tbox.innerHTML = squarify(items, { x: 0, y: 0, w: tbox.clientWidth, h: tbox.clientHeight }).map(t => {
+    const vMax = Math.max(...items.map(r => r.v)), W = tbox.clientWidth, H = tbox.clientHeight;
+    // 絕對大小：整張圖＝開戶以來最大的那天；方塊群的面積跟著那天的總曝險縮放，虛線框是那天的淨資產
+    const ref = TM.prices ? tmRef(M) : null, kE = ref ? Math.sqrt(Math.min(1, h.usd / ref)) : 1, kX = ref ? Math.sqrt(Math.min(1, expTotal / ref)) : 1;
+    const area = { x: 0, y: H - H * kX, w: W * kX, h: H * kX };
+    const lev = h.usd > 0 ? expTotal / h.usd : null;
+    tbox.innerHTML = (ref ? `<div class="tm-equity" style="left:0;top:${H - H * kE}px;width:${W * kE}px;height:${H * kE}px"><div class="tm-eq-label">淨資產 ${money(usd0(h.usd))}</div></div>` : '')
+      + squarify(items, area).map(t => {
       const mix = Math.round(14 + 66 * Math.sqrt(t.v / vMax)), big = t.w > 64 && t.h > 38, mid = t.w > 38 && t.h > 22;
       const c1 = `color-mix(in srgb, var(--accent) ${mix}%, var(--surface))`, c2 = `color-mix(in srgb, var(--accent) ${Math.max(mix - 14, 6)}%, var(--surface))`;
       const bg = t.opt ? `repeating-linear-gradient(135deg, ${c1} 0 7px, ${c2} 7px 14px)` : c1;   // 選擇權用斜線紋路
       return `<div class="tm-tile" style="left:${t.x}px;top:${t.y}px;width:${t.w}px;height:${t.h}px;background:${bg};color:${mix > 55 ? '#fff' : 'var(--text)'}">
         ${mid ? `<b style="font-size:${big ? Math.min(18, 11 + Math.sqrt(t.w * t.h) / 18) : 11}px">${esc(t.key)}</b>` : ''}${big ? `<span style="color:inherit;opacity:.85">${t.sub ? t.sub + '・' : ''}${pctPlain(t.v / h.usd, 1)}</span>` : ''}</div>`;
-    }).join('') + (TM.prices ? '' : '<div class="tm-loading">股價載入中，先用成交價估算</div>');
+    }).join('') + (TM.prices ? `<div class="tm-scale">曝險 ${money(usd0(expTotal))}・是淨資產的 ${money((lev ?? 0).toFixed(2) + ' 倍')}</div>` : '<div class="tm-loading">股價載入中，先用成交價估算</div>');
   }
-  el('tmHoldNote').innerHTML = rows.length || opts.length ? `持股市值 ${money(usd0(tot))}${opts.length ? `・選擇權曝險 ${money(usd0(optExp, { sign: true }))}` : ''}・百分比是佔淨資產` : '';
+  el('tmHoldNote').innerHTML = rows.length || opts.length ? `持股市值 ${money(usd0(tot))}${opts.length ? `・選擇權曝險 ${money(usd0(optExp, { sign: true }))}` : ''}` : '';
   el('tmHoldings').innerHTML = (rows.length ? `<div class="tm-hold">${rows.map(r => `<div class="kv"><span><b>${esc(r.s)}</b> <span class="muted">${fmtShares(r.q)} 股${r.lev !== 1 ? `・${r.lev}×` : ''}</span></span><span class="num">${r.v == null ? '—' : usd0(r.v)}</span></div>`).join('')}</div>` : '')
     + (opts.length ? `<div class="kv-title" style="margin-top:10px">選擇權（曝險用 delta 換算）</div>${opts.map(o => `<div class="kv"><span>${esc(optName(o.s))} <span class="muted">${o.q > 0 ? '買' : '賣'} ${Math.abs(o.q)} 口</span></span><span class="num">${o.exp == null ? '—' : usd0(o.exp, { sign: true })}</span></div>`).join('')}` : '');
   // 那天發生的事
