@@ -1,7 +1,7 @@
-// 分析功能：分頁、警示、隱私模式、平靜模式、今年的進度、近期事件、今日損益貢獻、風險報酬指標、回撤、每月報酬、
-// 依標的曝險、壓力測試、下單前檢查、選擇權部位風險、交易日記、交易分析、每月已實現損益、交易成本。
-// 只讀取 index.html 的資料與函式（data、calc、realizedStats…），只會寫入警示設定、交易日記、部位計畫和交易規則。
-// 全部包在函式裡，避免跟 index.html 的全域變數撞名；對外只公開 window.renderExtras。
+// 分析功能：提醒、隱私模式、深色模式、今年的進度、近期事件、風險報酬指標、每月報酬、年度總結、曝險（ETF 拆成分股、方塊圖）、
+// 交易計畫、選擇權部位風險、交易日記、交易分析、每月已實現損益、交易成本、標的查詢。
+// 讀取 app.js 的資料與函式（data、calc、realizedStats…），只會寫入交易日記和交易計畫。
+// 包在函式裡避免撞名；對外公開 window.renderExtras、window.AX（給 explore.js）等少數幾個。
 (() => {
 'use strict';
 
@@ -150,25 +150,6 @@ function applyPrivacy() {
 }
 applyPrivacy();
 
-// ============ 平靜模式：不顯示今天的漲跌，改看今年的累積成績 ============
-function applyCalm() {
-  const on = store.get('calm', '1') === '1';
-  document.documentElement.classList.toggle('calm', on);
-  const b = el('calmBtn');
-  if (b) { b.textContent = on ? '◉ 平靜中' : '◎ 平靜'; b.title = on ? '平靜模式開啟中：按一下會顯示今天的漲跌' : '平靜模式：不顯示今天的漲跌，改看今年的累積成績'; }
-}
-applyCalm();
-const isCalm = () => document.documentElement.classList.contains('calm');
-// 平靜模式下按「看一下」：暫時顯示數字，3 分鐘後自動收起
-let peekTimer = null;
-function peek(on) {
-  document.documentElement.classList.toggle('peek', on);
-  const b = el('peekBtn'); if (b) b.textContent = on ? '🙈 收起來' : '👁 看一下';
-  clearTimeout(peekTimer);
-  if (on) peekTimer = setTimeout(() => peek(false), 3 * 60e3);
-  if (data) render();   // 讓圖表提示框等地方跟著更新
-}
-
 // ============ 今年的進度 ============
 function ytdStats(c) {
   const hist = inRange(data.history, 'ytd');
@@ -182,8 +163,7 @@ function ytdStats(c) {
 function renderProgress(c) {
   const box = el('progressBox'); if (!box) return;
   const y = ytdStats(c);
-  if (!y) { box.innerHTML = '<div class="empty">今年的資料還不夠</div>'; el('heroCalm').innerHTML = ''; return; }
-  el('heroCalm').innerHTML = `<span class="muted">今年累積</span> <b class="num">${usd0(y.gain, { sign: true })}</b> <span class="muted num">（${pct(y.twr)}）</span>`;
+  if (!y) { box.innerHTML = '<div class="empty">今年的資料還不夠</div>'; return; }
   el('progressNote').textContent = `從 ${y.start.date} 收盤起算`;
   // 一排四格：我賺的錢、我的報酬率、兩個指數今年的報酬
   // 左邊：今年賺到的錢；右邊：我的報酬率和兩個指數的長條，一眼看出差距
@@ -290,18 +270,18 @@ function computeAlerts(c) {
   for (const r of c.rows.filter(x => isLevEtf(x.sym))) out.push({ lvl: 'danger', tag: '守則 4', msg: `持有槓桿 ETF ${esc(r.sym)}：照守則不能持有，可以隨時賣出` });
   for (const o of c.optRows.filter(o => isLevEtf(occ(o.sym).root))) out.push({ lvl: 'warn', tag: '守則 4', msg: `${esc(optName(o.sym))} 的標的是槓桿 ETF：照守則可以隨時平倉，不用等` });
   for (const g of capExposure(c).filter(x => x.pct * 100 > RULES.trim))
-    out.push({ lvl: 'danger', tag: '守則 3', msg: `${esc(grpName(g.g))} 佔總資產 <b>${pctPlain(g.pct)}</b>，超過 ${RULES.trim}%：照守則減碼回 ${RULES.cap}%${isCalm() ? '' : `（約 <b>${usd0(g.v - c.totalUSD * RULES.cap / 100)}</b>）`}` });
+    out.push({ lvl: 'danger', tag: '守則 3', msg: `${esc(grpName(g.g))} 佔總資產 <b>${pctPlain(g.pct)}</b>，超過 ${RULES.trim}%：照守則減碼回 ${RULES.cap}%（約 <b>${usd0(g.v - c.totalUSD * RULES.cap / 100)}</b>）` });
   for (const o of c.optRows.filter(o => o.qty > 0)) out.push({ lvl: 'warn', tag: '守則 1', msg: `持有買方選擇權 ${esc(optName(o.sym))}：守則是不做買方` });
   // 冷靜期：大跌的當天、或選擇權虧很多時，提醒先不要開新部位
   const base = c.totalUSD - c.day, dayPct = base > 0 ? c.day / base : 0;
   if (a.cool && dayPct * 100 <= -a.coolPct)
-    out.push({ lvl: 'calm', tag: '冷靜', msg: `今天帳戶波動比較大${isCalm() ? '' : `（<b>${pct(dayPct)}</b>）`}。虧損的當天最容易做出衝動的決定，建議今天先不要開新部位，明天再看。` });
+    out.push({ lvl: 'calm', tag: '冷靜', msg: `今天帳戶波動比較大（<b>${pct(dayPct)}</b>）。虧損的當天最容易做出衝動的決定，建議今天先不要開新部位，明天再看。` });
   for (const o of c.optRows) {
     const share = Math.abs(o.value) / c.totalUSD;
     if (share * 100 > a.optMax) out.push({ lvl: 'warn', tag: '部位', msg: `${esc(optName(o.sym))} 佔淨資產 <b>${pctPlain(share)}</b>，超過單筆上限 ${a.optMax}%` });
     const paid = o.avg * 100 * o.qty;
     if (a.cool && o.qty > 0 && o.mark != null && paid > 0 && o.value < paid * 0.75)
-      out.push({ lvl: 'calm', tag: '冷靜', msg: `${esc(optName(o.sym))} 目前比買進時少了 ${isCalm() ? '一些' : `<b>${pctPlain(1 - o.value / paid)}</b>`}。照你事先決定的停損計畫走就好，不要為了攤平再加碼。` });
+      out.push({ lvl: 'calm', tag: '冷靜', msg: `${esc(optName(o.sym))} 目前比買進時少了 <b>${pctPlain(1 - o.value / paid)}</b>。照你事先決定的停損計畫走就好，不要為了攤平再加碼。` });
   }
   for (const o of c.optRows) {
     const oc = occ(o.sym), S = quotes[oc.root]?.price, dte = days(today(), oc.exp);
@@ -1475,7 +1455,7 @@ function renderSymbolPage(c) {
 window.renderExtras = function renderExtras(c) {
   if (!data) return;
   c = c || calc();
-  applyPrivacy(); applyCalm(); applyTheme();
+  applyPrivacy(); applyTheme();
   // 股價還沒載入前，持股市值都是 0、總資產算不準，會冒出「佔淨資產 150%」這種假警示；等第一次報價回來再算
   try { renderAlertBar(lastUpdate ? computeAlerts(c) : []); } catch (err) { console.error('alerts', err); }
   // 每一頁只有自己的區塊；不在這一頁的直接略過
@@ -1494,7 +1474,7 @@ window.renderExtras = function renderExtras(c) {
 };
 
 // ============ 給 explore.js（特殊功能頁）用的共用函式 ============
-window.AX = { el, usd, usd0, pct, pctPlain, avg, days, store, isCalm, dailyReturns, benchRet, grp, grpName, stockLots, optionLifeEvents,
+window.AX = { el, usd, usd0, pct, pctPlain, avg, days, store, dailyReturns, benchRet, grp, grpName, stockLots, optionLifeEvents,
               squarify, outsideAsFlow, sectorOf };
 
 // ============ 事件 ============
@@ -1523,8 +1503,6 @@ document.addEventListener('click', e => {
     const t = darkNow() ? 'light' : 'dark';
     document.documentElement.dataset.theme = t; store.set('theme', t); applyTheme();
   }
-  else if (b.id === 'calmBtn') { store.set('calm', isCalm() ? '0' : '1'); peek(false); applyCalm(); render(); }
-  else if (b.id === 'peekBtn' || b.dataset.act === 'peek') peek(!document.documentElement.classList.contains('peek'));
   else if (b.dataset.mood) { jMood = b.dataset.mood; renderJournal(); }
   else if (b.dataset.pfAct) {
     const f = el('planForm'); f.querySelector('[data-pf="action"]').value = b.dataset.pfAct;

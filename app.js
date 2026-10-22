@@ -539,8 +539,6 @@ function renderTx() {
   }).join('') : `<tr><td colspan="5" class="empty">尚無紀錄</td></tr>`;
 }
 
-// 平靜模式（analytics.js）開著、而且沒有按「看一下」時，不要在提示框裡露出金額
-const hideAmounts = () => document.documentElement.classList.contains('calm') && !document.documentElement.classList.contains('peek');
 
 // ============ Chart ============
 function renderChart() {
@@ -589,7 +587,7 @@ function renderChart() {
     <text class="axis-text" x="${W - padR}" y="${H - 4}" text-anchor="end">${pts[pts.length - 1].date}</text>
     <path d="${area}" fill="url(#g)"/>
     <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-    ${marks.map(p => `<circle cx="${x(p.date)}" cy="${y(p.v)}" r="4" fill="var(--surface)" stroke="var(--text-2)" stroke-width="1.5"><title>${p.date} ${hideAmounts() ? '有入金或帳外獲利' : events[p.date].join('、')}</title></circle>`).join('')}
+    ${marks.map(p => `<circle cx="${x(p.date)}" cy="${y(p.v)}" r="4" fill="var(--surface)" stroke="var(--text-2)" stroke-width="1.5"><title>${p.date} ${events[p.date].join('、')}</title></circle>`).join('')}
     <line id="cx" y1="${padT}" y2="${H - padB}" stroke="var(--text-3)" stroke-width="1" visibility="hidden"/>
     <circle id="cd" r="4.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>
     <rect x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent" id="hit"/>
