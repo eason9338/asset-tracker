@@ -269,9 +269,7 @@ function render() {
     }).join('') + (bills.length ? `<tr class="hold-sep"><td colspan="7">短債 ETF（當現金，不算曝險）</td></tr>` + bills.map(row).join('') : '');
   }
   const lastOptTime = Math.max(0, ...c.optRows.map(o => o.time || 0));
-  $('#optNote').textContent = c.optRows.length
-    ? `選擇權以買賣價的中間價計價，報價來自 Yahoo，延遲約 20 分鐘` + (lastOptTime ? `（最後成交 ${new Date(lastOptTime * 1000).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}）` : '') + '；賣方部位市值為負。'
-    : '';
+  $('#optNote').textContent = '';
 
   renderChart();
   renderCompare();
@@ -451,7 +449,7 @@ function renderPnl(st) {
       ${fx ? `<div class="s num">≈ ${fmt(pn.v * fx, 'TWD', { sign: true })}</div>` : ''}</div>
     ${pn.parts ? `<div class="pnl-parts">${pn.parts.map(([f, k, v]) => `<button class="pnl-part" data-f="${f}"><span class="k">${k}</span><span class="num ${cls(v)}">${sign(v)}</span></button>`).join('')}</div>` : ''}
     <div class="s pnl-notes">${pn.s.filter(Boolean).join('<br>')}</div>
-    ${pn.table ? `<div style="flex-basis:100%;min-width:0;max-width:100%">${pn.table}<div class="s" style="margin-top:4px">勝率＝賺錢筆數 ÷ 全部筆數（打平算敗）；獲利因子＝總賺 ÷ 總賠，大於 1 代表整體賺錢</div></div>` : ''}
+    ${pn.table ? `<div style="flex-basis:100%;min-width:0;max-width:100%">${pn.table}</div>` : ''}
   </div>`;
 }
 
@@ -839,7 +837,7 @@ function renderCompare() {
     spx && `相對 S&P 500：<b class="${cls(me - last(spx))}">${fmtPct(me - last(spx))}</b>`,
     rf && `相對無風險利率：<b class="${cls(me - last(rf))}">${fmtPct(me - last(rf))}</b>`,
     !bench && '大盤資料載入中…',
-  ].filter(Boolean).join('　·　') + '<br>入金、出金與生活支出不算進報酬；期間 ' + series[0].pts[0].date + ' ～ ' + series[0].pts.at(-1).date;
+  ].filter(Boolean).join('　·　');
 
   const W = box.clientWidth, H = box.clientHeight, padL = 52, padR = 84, padT = 10, padB = 24;
   const dates = series[0].pts.map(p => p.date);

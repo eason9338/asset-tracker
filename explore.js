@@ -448,7 +448,7 @@ function rTrend(ps, st) {
     ;
     TM.rOut = vals.some(out);
   }
-  el('rTrendNote').textContent = (rows.some(r => r.partial) ? '* 今年還沒結束，算到今天。' : '') + (TM.rOut ? '空心點超出圖的範圍。' : '') + '滑過去看數字，點一期可以切到那一期的財報。營收成長率跟去年同期比。';
+  el('rTrendNote').textContent = rows.some(r => r.partial) ? '* 今年算到今天' : '';
 }
 
 function renderReport() {
