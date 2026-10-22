@@ -594,6 +594,9 @@ a.sym-link:hover { color: var(--accent); text-decoration: underline; }
 .tm-ev:last-child { border-bottom: 0; }
 .tm-ev .badge { flex-shrink: 0; }
 .tm-hold .kv b { color: var(--text); }
+/* 每天的列表長度不同：固定高度、在裡面捲動，拖時間時整頁高度才不會一直變（不然頁面會上下跳） */
+#tmEvents, #tmHoldings { height: 280px; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+#tmHoldNote { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; }
 .tm-loading { position: absolute; right: 8px; bottom: 6px; font-size: var(--fs-xs); color: var(--text-3); background: var(--surface); padding: 2px 8px; border-radius: 99px; }
 @media (max-width: 1150px) { .trait-grid { grid-template-columns: 1fr; } }
 
