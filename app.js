@@ -1,311 +1,3 @@
-<!doctype html>
-<html lang="zh-Hant">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>我的資產</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>">
-<style>
-:root {
-  color-scheme: light;
-  --bg: #f6f5f2;
-  --surface: #fcfcfb;
-  --surface-2: #f0efeb;
-  --border: #e3e1db;
-  --text: #0b0b0b;
-  --text-2: #52514e;
-  --text-3: #85847f;
-  --accent: #2a78d6;
-  --accent-soft: rgba(42,120,214,.12);
-  --up: #d23c3b;     /* 台股慣例：紅漲 */
-  --down: #0f7d3a;   /* 綠跌 */
-  --radius: 12px;
-}
-:root.us-colors { --up: #0f7d3a; --down: #d23c3b; }
-/* 比較圖的系列色（固定順序：組合、S&P 500、Nasdaq 100、短期美債） */
-:root { --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; }
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --bg: #111110;
-    --surface: #1a1a19;
-    --surface-2: #232321;
-    --border: #2f2f2c;
-    --text: #ffffff;
-    --text-2: #c3c2b7;
-    --text-3: #8d8c85;
-    --accent: #3987e5;
-    --accent-soft: rgba(57,135,229,.18);
-    --up: #f06a69;
-    --down: #3fbf6f;
-    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
-  }
-  :root.us-colors { --up: #3fbf6f; --down: #f06a69; }
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0; background: var(--bg); color: var(--text);
-  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Segoe UI", sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-.wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
-.num { font-variant-numeric: tabular-nums; }
-.up { color: var(--up); } .down { color: var(--down); } .muted { color: var(--text-3); }
-h2 { font-size: 15px; margin: 0; font-weight: 600; }
-button, input, select { font: inherit; color: inherit; }
-button {
-  border: 1px solid var(--border); background: var(--surface); border-radius: 8px;
-  padding: 7px 12px; cursor: pointer; white-space: nowrap;
-}
-button:hover { background: var(--surface-2); }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-button.primary:hover { filter: brightness(1.08); }
-button.ghost { border-color: transparent; background: transparent; padding: 4px 8px; color: var(--text-2); }
-button.ghost:hover { background: var(--surface-2); color: var(--text); }
-button.danger { color: var(--up); }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
-.card + .card, .grid + .card, .card + .grid { margin-top: 16px; }
-.card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-
-/* Hero */
-.hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
-.hero-label { color: var(--text-2); font-size: 13px; display: flex; gap: 8px; align-items: center; }
-.hero-value { font-size: clamp(32px, 6vw, 46px); font-weight: 650; letter-spacing: -.02em; line-height: 1.15; }
-.hero-sub { font-size: 14px; margin-top: 4px; display: flex; gap: 14px; flex-wrap: wrap; }
-.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.seg button { border: 0; border-radius: 0; padding: 4px 10px; font-size: 12px; }
-.seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.status { font-size: 12px; color: var(--text-3); display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
-@media (max-width: 600px) { .status { justify-content: flex-start; } }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
-
-.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
-@media (max-width: 600px) { .grid { grid-template-columns: repeat(2, 1fr); } }
-.stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
-.stat .k { font-size: 12px; color: var(--text-2); display: flex; justify-content: space-between; align-items: center; }
-.stat .v { font-size: 20px; font-weight: 600; margin-top: 2px; }
-.stat .s { font-size: 12px; margin-top: 2px; }
-
-/* Tables */
-.table-wrap { overflow-x: auto; margin: 0 -18px; padding: 0 18px; }
-table { width: 100%; border-collapse: collapse; }
-th, td { padding: 9px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border); }
-th { font-size: 12px; font-weight: 500; color: var(--text-3); }
-th:first-child, td:first-child { text-align: left; padding-left: 0; }
-th:last-child, td:last-child { padding-right: 0; }
-tr:last-child td { border-bottom: 0; }
-tbody tr:hover td { background: var(--surface-2); }
-.sym { font-weight: 600; }
-.sym-name { font-size: 12px; color: var(--text-3); max-width: 180px; overflow: hidden; text-overflow: ellipsis; display: block; }
-.alloc { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
-.alloc-bar { width: 60px; height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
-.alloc-bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
-.empty { text-align: center; color: var(--text-3); padding: 28px 0; }
-
-/* Chart */
-.chart-box { position: relative; height: 220px; }
-.chart-box svg { width: 100%; height: 100%; display: block; overflow: visible; }
-.chart-tip {
-  position: absolute; pointer-events: none; background: var(--text); color: var(--bg);
-  padding: 6px 10px; border-radius: 8px; font-size: 12px; white-space: nowrap; transform: translate(-50%, -110%);
-}
-.axis-text { fill: var(--text-3); font-size: 11px; }
-.end-label { fill: var(--text-2); font-size: 11px; }
-.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 10px; font-size: 13px; }
-.legend-item { display: flex; align-items: center; gap: 6px; color: var(--text-2); }
-.legend-item b { color: var(--text); font-weight: 600; }
-.swatch { width: 14px; height: 0; border-top: 2px solid; border-radius: 1px; }
-.swatch.dash { border-top-style: dashed; }
-.compare-note { font-size: 12px; color: var(--text-3); margin-top: 8px; }
-.chart-tip .row { display: flex; justify-content: space-between; gap: 14px; }
-.sess { display: inline-block; font-size: 10px; font-weight: 600; padding: 0 5px; margin-left: 4px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); vertical-align: 1px; }
-.lev { display: inline-block; font-size: 10px; font-weight: 600; padding: 0 5px; margin-left: 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); vertical-align: 1px; }
-.imp-list { font-size: 13px; color: var(--text-2); margin: 0 0 12px; padding-left: 18px; }
-.imp-list li { margin-bottom: 4px; }
-.imp-table { font-size: 12px; margin-bottom: 12px; }
-.imp-table td, .imp-table th { padding: 4px 6px; }
-
-/* Transactions */
-.pnl-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; background: var(--surface-2); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
-.pnl-panel .k { font-size: 12px; color: var(--text-2); }
-.pnl-panel .v { font-size: 26px; font-weight: 650; letter-spacing: -.01em; }
-.pnl-panel .s { font-size: 12px; color: var(--text-3); line-height: 1.6; }
-.pnl-parts { display: flex; gap: 8px; flex-wrap: wrap; }
-.pnl-part { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: var(--surface); padding: 8px 12px; font-size: 15px; font-weight: 600; }
-.pnl-part .k { font-weight: 400; }
-.pnl-notes { flex: 1 1 220px; }
-.win-table { font-size: 13px; }
-.win-table th, .win-table td { padding: 5px 8px; }
-.tx-type { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--surface-2); color: var(--text-2); }
-.filters { display: flex; gap: 6px; flex-wrap: wrap; }
-
-/* Modal */
-dialog {
-  border: 1px solid var(--border); border-radius: 16px; padding: 0; background: var(--surface); color: var(--text);
-  width: min(440px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(0,0,0,.25);
-}
-dialog::backdrop { background: rgba(0,0,0,.35); }
-.modal-body { padding: 20px; }
-.modal-body h3 { margin: 0 0 14px; font-size: 17px; }
-.tabs { display: flex; gap: 4px; background: var(--surface-2); border-radius: 10px; padding: 3px; margin-bottom: 16px; }
-.tabs button { flex: 1; border: 0; background: transparent; padding: 6px 4px; font-size: 13px; border-radius: 8px; }
-.tabs button.on { background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.12); font-weight: 600; }
-.field { margin-bottom: 12px; }
-.field label { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 4px; }
-.field input, .field select {
-  width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
-}
-.field input:focus, .field select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); margin-bottom: 12px; }
-.preview:empty { display: none; }
-.preview { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px; color: var(--text-2); min-height: 20px; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.err { color: var(--up); font-size: 13px; margin-bottom: 10px; }
-.toast {
-  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: var(--bg);
-  padding: 10px 16px; border-radius: 10px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none;
-}
-.toast.show { opacity: 1; }
-.spin { display: inline-block; animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-</style>
-</head>
-<body>
-<div class="wrap">
-
-  <!-- 總資產 -->
-  <div class="card">
-    <div class="hero">
-      <div>
-        <div class="hero-label">
-          總資產
-          <span class="seg" id="curSeg">
-            <button data-cur="TWD">TWD</button><button data-cur="USD">USD</button>
-          </span>
-        </div>
-        <div class="hero-value num" id="heroTotal">—</div>
-        <div class="hero-sub num">
-          <span id="heroDay"></span>
-        </div>
-      </div>
-      <div>
-        <div class="status">
-          <span id="sessionInfo"></span>
-          <span id="fxInfo"></span>
-        </div>
-        <div class="status" style="margin-top:4px">
-          <span id="updatedAt">尚未更新</span>
-          <button class="ghost" id="refreshBtn" title="立即更新股價">↻ 更新</button>
-        </div>
-      </div>
-    </div>
-    <div class="actions">
-      <button class="primary" id="brokerBtn">⇪ 上傳券商檔案</button>
-      <span class="muted" style="font-size:12px;align-self:center">交易紀錄 CSV、持倉 xlsx 都可以，也能直接拖進網頁</span>
-      <input type="file" id="brokerFile" accept=".csv,.xlsx,text/csv" multiple hidden>
-    </div>
-  </div>
-
-  <div class="grid">
-    <div class="stat"><div class="k">持倉市值</div><div class="v num" id="stStock">—</div><div class="s num" id="stStockSub"></div></div>
-    <div class="stat"><div class="k">現金（美元）</div><div class="v num" id="stUSD">—</div><div class="s muted num" id="stUSDSub"></div></div>
-    <div class="stat"><div class="k">USD / TWD 匯率</div><div class="v num" id="stFx">—</div><div class="s num" id="stFxSub"></div></div>
-    <div class="stat"><div class="k">槓桿率</div><div class="v num" id="stLev">—</div><div class="s muted num" id="stLevSub"></div></div>
-  </div>
-
-  <!-- 持股 -->
-  <div class="card">
-    <div class="card-head">
-      <h2>持股</h2>
-      <span class="muted" style="font-size:12px" id="syncInfo"></span>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>代號</th><th>股數</th><th>均價</th><th>現價</th><th>今日</th><th>市值 (USD)</th><th>佔比</th>
-        </tr></thead>
-        <tbody id="holdingsBody"></tbody>
-      </table>
-    </div>
-    <div class="muted" style="font-size:12px;margin-top:8px" id="optNote"></div>
-  </div>
-
-  <!-- 走勢 -->
-  <div class="card">
-    <div class="card-head">
-      <h2>總資產走勢 <span class="muted" style="font-weight:400;font-size:12px" id="chartCurLabel"></span></h2>
-      <span style="display:flex;gap:8px;align-items:center">
-      <button class="ghost" id="rebuildBtn" title="用全部交易紀錄與歷史收盤價重新計算過去每天的總資產">↻ 重新計算</button>
-      <span class="seg" id="rangeSeg">
-        <button data-range="30">1月</button><button data-range="90">3月</button><button data-range="180">6月</button><button data-range="ytd">今年</button><button data-range="365">1年</button><button data-range="0">全部</button>
-      </span>
-      </span>
-    </div>
-    <div class="chart-box" id="chartBox"></div>
-    <div class="muted" style="font-size:12px;margin-top:8px">過去的走勢由交易紀錄與歷史收盤價推算，匯入券商檔案後會自動重新計算；今天的數字隨股價即時更新。</div>
-  </div>
-
-  <!-- 報酬率比較 -->
-  <div class="card">
-    <div class="card-head">
-      <h2>報酬率比較 <span class="muted" style="font-weight:400;font-size:12px">（時間加權，美元計價）</span></h2>
-      <span class="seg" id="cmpRangeSeg">
-        <button data-crange="30">1月</button><button data-crange="90">3月</button><button data-crange="180">6月</button><button data-crange="ytd">今年</button><button data-crange="365">1年</button><button data-crange="0">全部</button>
-      </span>
-    </div>
-    <div class="legend" id="cmpLegend"></div>
-    <div class="chart-box" id="cmpBox"></div>
-    <div class="compare-note" id="cmpNote"></div>
-  </div>
-
-  <!-- 槓桿率走勢 -->
-  <div class="card">
-    <div class="card-head">
-      <h2>槓桿率走勢</h2>
-      <span class="seg" id="levRangeSeg">
-        <button data-lrange="30">1月</button><button data-lrange="90">3月</button><button data-lrange="180">6月</button><button data-lrange="ytd">今年</button><button data-lrange="365">1年</button><button data-lrange="0">全部</button>
-      </span>
-    </div>
-    <div class="legend" id="levStats"></div>
-    <div class="chart-box" id="levBox"></div>
-    <div class="compare-note">槓桿率 = 曝險 ÷ 淨資產。槓桿 ETF 依倍數計入；買方選擇權以 delta 計算曝險（過去以標的 30 日實際波動率估算，今天用即時報價反推）；賣方選擇權（sell call／sell put）不計入。</div>
-  </div>
-
-  <!-- 交易紀錄 -->
-  <div class="card">
-    <div class="card-head">
-      <h2>已實現損益與紀錄</h2>
-      <div class="filters seg" id="txFilter">
-        <button data-f="all">全部</button><button data-f="trade">股票</button><button data-f="option">選擇權</button><button data-f="cash">資金・股息</button>
-      </div>
-    </div>
-    <div id="pnlGrid"></div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>日期</th><th style="text-align:left">類型</th><th style="text-align:left">內容</th><th>金額</th><th>備註</th></tr></thead>
-        <tbody id="txBody"></tbody>
-      </table>
-    </div>
-    <div style="text-align:center;margin-top:8px"><button class="ghost" id="moreTx" hidden>顯示更多</button></div>
-  </div>
-
-  <!-- 設定 -->
-  <div class="card">
-    <div class="card-head"><h2>設定與備份</h2></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <button id="exportBtn">下載備份 (JSON)</button>
-      <button id="undoImportBtn" hidden>復原上次券商匯入</button>
-      <label class="check" style="margin:0 0 0 8px"><input type="checkbox" id="usColors"> 使用美股配色（綠漲紅跌）</label>
-    </div>
-    <div class="muted" style="font-size:12px;margin-top:10px">所有數字都來自券商檔案：持股依持倉檔校正，現金由交易紀錄推算。資料存在本機資料夾的 data.json，每天自動備份到 backups/。</div>
-  </div>
-</div>
-
-<dialog id="modal"><form method="dialog" class="modal-body" id="modalForm"></form></dialog>
-<div class="toast" id="toast"></div>
-
-<script>
 // ============ State ============
 let data = null;
 let quotes = {};           // symbol -> {price, prevClose, name}
@@ -324,9 +16,10 @@ const LEV_DEFAULT = {
 const levOf = s => data.settings.leverage?.[s] ?? LEV_DEFAULT[s] ?? 1;
 const OPT_RE = /^[A-Z.]+\d{6}[CP]\d{8}$/;
 let lastUpdate = null;
-let chartRange = '0';      // 總資產走勢的區間：天數、'ytd' 或 '0'（全部）
-let cmpRange = '0';
-let levRange = '0';        // 槓桿率走勢的區間        // 報酬率比較的區間
+let chartRange = '365';    // 總資產走勢的區間：天數、'ytd' 或 '0'（全部）；預設一年
+let chartMode = (() => { try { return localStorage.getItem('asset.chartMode') || 'total'; } catch { return 'total'; } })();   // 'total' 或 'principal'（本金與獲利）
+let cmpRange = '365';       // 報酬率比較的區間；預設一年
+let levRange = '365';      // 槓桿率走勢的區間；預設一年
 function rangeCutoff(r) {
   if (r === 'ytd') return new Date().getFullYear() + '-01-01';
   if (!+r) return '';
@@ -342,8 +35,20 @@ const inRange = (hist, r) => {
 };
 let txFilter = 'all';
 let txLimit = 30;
+let txYear = 'all';        // 交易紀錄頁：只看某一年（同時套用到已實現損益與勝率表）
+let txMonths = new Set();  // 再細分到那一年的某幾個月（'01'～'12'，空的代表整年）
+let txSearch = '';         // 交易紀錄頁：代號搜尋
+let txPicker = null;       // 交易紀錄頁的期間選擇器
+{ // 網址可以直接帶期間，例如 /trades?ym=2025-10 或 /trades?y=2025&m=10,11,12
+  const q = new URLSearchParams(location.search), ym = q.get('ym');
+  if (ym && /^\d{4}-\d{2}$/.test(ym)) { txYear = ym.slice(0, 4); txMonths = new Set([ym.slice(5)]); }
+  else if (/^\d{4}$/.test(q.get('y') || '')) { txYear = q.get('y'); txMonths = new Set((q.get('m') || '').split(',').filter(m => /^\d{1,2}$/.test(m)).map(m => m.padStart(2, '0'))); }
+}
+const syncTxUrl = () => history.replaceState(null, '', location.pathname + (txYear === 'all' ? '' : `?y=${txYear}${txMonths.size ? '&m=' + [...txMonths].sort().map(Number).join(',') : ''}`));
 
-const $ = s => document.querySelector(s);
+// 每一頁只放自己的區塊：找不到的元素回傳一個不在畫面上的空 div，寫進去不會出錯，圖表也會因為量不到寬度而略過
+const $ = s => document.querySelector(s) || document.createElement('div');
+const has = s => !!document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const today = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -378,41 +83,50 @@ async function load() {
   data.settings ??= { displayCurrency: 'TWD' };
   if (data.settings.lastFx) ({ rate: fx, prev: fxPrev } = data.settings.lastFx);
 }
-let saveTimer = null;
-function save() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
+let saveTimer = null, writing = Promise.resolve();
+// 寫入排隊：一次只送一個，每個都用最新的版本號（避免兩個請求互撞變成「別處更新」）
+function write(url, body) {
+  writing = writing.then(async () => {
     try {
-      const r = await fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body()) });
       if (r.status === 409) { toast('資料已在別處更新，重新載入中…'); setTimeout(() => location.reload(), 1200); return; }
       if (!r.ok) throw new Error();
       data.rev = (await r.json()).rev;
     } catch { toast('⚠️ 儲存失敗，請確認伺服器仍在執行'); }
-  }, 150);
+  });
+}
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveTimer = null; write('/api/data', () => data); }, 150);
+}
+function saveToday(entry) {
+  // 只有今天的總資產變了：送那一筆就好；有其他改動還沒存的話照常整份存
+  if (saveTimer) return save();
+  write('/api/history-today', () => ({ rev: data.rev, entry }));
 }
 
 // ============ Quotes ============
 async function refreshQuotes() {
   const optSyms = realizedStats().openPos.map(o => o.symbol);
   const roots = optSyms.map(s => occ(s)?.root).filter(Boolean);   // 標的股價：算 delta 用
-  const syms = [...new Set([...Object.keys(data.holdings), ...roots])];
+  // 進行中的交易計畫也要報價（監控有沒有到價），包括還沒持有的標的
+  const planSyms = (data.plans || []).filter(p => p.status === 'active' && p.sym).map(p => p.sym.toUpperCase());
+  const syms = [...new Set([...Object.keys(data.holdings), ...roots, ...planSyms])];
   const btn = $('#refreshBtn');
   btn.innerHTML = '<span class="spin">↻</span> 更新中';
   try {
-    const r = await fetch('/api/quotes?symbols=' + encodeURIComponent([...syms, 'TWD=X'].join(',')));
-    const q = await r.json();
+    // 股票和選擇權報價同時抓
+    const [q, oq] = await Promise.all([fetch('/api/quotes?symbols=' + encodeURIComponent([...syms, 'TWD=X'].join(','))).then(r => r.json()),
+      optSyms.length ? fetch('/api/options?symbols=' + encodeURIComponent(optSyms.join(','))).then(r => r.json()) : {}]);
     let failed = [];
     for (const [s, v] of Object.entries(q)) {
       if (v.error || v.price == null) { if (s !== 'TWD=X') failed.push(s); continue; }
       if (s === 'TWD=X') { fx = v.price; fxPrev = v.prevClose; data.settings.lastFx = { rate: fx, prev: fxPrev }; }
       else quotes[s] = v;
     }
-    if (optSyms.length) {
-      const oq = await (await fetch('/api/options?symbols=' + encodeURIComponent(optSyms.join(',')))).json();
-      for (const [s, v] of Object.entries(oq)) {
-        if (v.error || v.mark == null) failed.push(optName(s));
-        else optQuotes[s] = v;
-      }
+    for (const [s, v] of Object.entries(oq)) {
+      if (v.error || v.mark == null) failed.push(optName(s));
+      else optQuotes[s] = v;
     }
     lastUpdate = new Date();
     if (failed.length) toast('查不到報價：' + failed.join(', '));
@@ -484,7 +198,7 @@ function recordHistory() {
     if (last.usd === entry.usd && last.twd === entry.twd) return;
     data.history[data.history.length - 1] = entry;
   } else data.history.push(entry);
-  save();
+  saveToday(entry);
 }
 
 // ============ Render ============
@@ -527,10 +241,10 @@ function render() {
     hb.innerHTML = c.rows.map(r => {
       const share = r.value != null ? r.value / totalAssetUSD : 0;
       return `<tr>
-        <td><span class="sym">${esc(r.sym)}</span>${r.lev !== 1 ? `<span class="lev">${r.lev}x</span>` : ''}<span class="sym-name">${esc(r.name || '')}</span></td>
+        <td><a class="sym sym-link" href="/symbol?s=${encodeURIComponent(window.symGroup?.(r.sym).g || r.sym)}">${esc(r.sym)}</a>${r.lev !== 1 ? `<span class="badge xs accent">${r.lev}x</span>` : ''}<span class="sym-name">${esc(r.name || '')}</span></td>
         <td class="num">${fmtShares(r.shares)}</td>
         <td class="num">${fmt(r.avg)}</td>
-        <td class="num">${r.price != null ? fmt(r.price) + (SESSION_TAG[r.session] ? ` <span class="sess">${SESSION_TAG[r.session]}</span><span class="sym-name">收盤 ${fmt(r.regularPrice)}</span>` : '') : '<span class="muted">—</span>'}</td>
+        <td class="num">${r.price != null ? fmt(r.price) + (SESSION_TAG[r.session] ? ` <span class="badge xs">${SESSION_TAG[r.session]}</span><span class="sym-name">收盤 ${fmt(r.regularPrice)}</span>` : '') : '<span class="muted">—</span>'}</td>
         <td class="num ${cls(r.dayPct)}">${fmtPct(r.dayPct)}</td>
         <td class="num">${fmt(r.value)}</td>
         <td class="num"><div class="alloc"><span>${(share * 100).toFixed(1)}%</span><div class="alloc-bar"><i style="width:${Math.min(100, share * 100)}%"></i></div></div></td>
@@ -541,7 +255,7 @@ function render() {
         <td><span class="sym">${esc(optName(o.sym))}</span><span class="sym-name">選擇權${o.delta != null ? `・Δ ${o.delta.toFixed(2)}` : ''}</span></td>
         <td class="num">${o.qty > 0 ? '' : '−'}${fmtShares(Math.abs(o.qty))} 口</td>
         <td class="num">${fmt(o.avg)}</td>
-        <td class="num">${o.mark != null ? fmt(o.mark) + (o.bid > 0 && o.ask > 0 ? `<span class="sym-name">買 ${fmt(o.bid)}／賣 ${fmt(o.ask)}</span>` : '<span class="sym-name">收盤價・選擇權只在正規盤交易</span>') : '<span class="muted">—</span>'}</td>
+        <td class="num">${o.mark != null ? fmt(o.mark) + (o.bid > 0 && o.ask > 0 ? `<span class="sym-name">買 ${fmt(o.bid)}／賣 ${fmt(o.ask)}</span>` : '<span class="sym-name" title="選擇權只在正規盤交易">收盤價</span>') : '<span class="muted">—</span>'}</td>
         <td class="num ${cls(o.dayPct * Math.sign(o.qty))}" title="合約價格漲跌；顏色依對你的損益（賣方部位價格上漲是虧損）">${fmtPct(o.dayPct)}</td>
         <td class="num">${fmt(o.value)}</td>
         <td class="num"><div class="alloc"><span>${(share * 100).toFixed(1)}%</span><div class="alloc-bar"><i style="width:${Math.min(100, Math.abs(share) * 100)}%"></i></div></div></td>
@@ -560,6 +274,7 @@ function render() {
   $('#undoImportBtn').hidden = !data.imports?.length;
   const lastTx = data.transactions.filter(t => t.imported).map(t => t.date).sort().at(-1);
   $('#syncInfo').textContent = [data.settings.syncDate && `持倉檔同步至 ${data.settings.syncDate}`, lastTx && `交易紀錄至 ${lastTx}`].filter(Boolean).join('・');
+  if (typeof renderExtras === 'function') renderExtras(c);   // analytics.js 的分析功能
 }
 
 // ============ 已實現損益 ============
@@ -637,13 +352,46 @@ function realizedStats() {
   }
   return { stock, sells, perSell, bySym, stockEvents, estimated, option, perOpt, optEvents, expiries, openPos, closes, expired, open, partial, div, divN, refund, interest, outside };
 }
+// 選了期間時，上方列出那段期間的帳戶報酬與大盤（每個月分開算再連乘，月份不連續也正確）
+function renderTxPeriod() {
+  const box = $('#txPeriod');
+  if (txYear === 'all' || !window.periodPerf) { box.innerHTML = ''; return; }
+  const ms = txMonths.size ? [...txMonths].sort() : Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
+  const parts = ms.map(m => window.periodPerf(`${txYear}-${m}-01`, `${txYear}-${m}-31`)).filter(Boolean);
+  if (!parts.length) { box.innerHTML = ''; return; }
+  const chain = k => parts.some(p => p[k] == null) ? null : parts.reduce((a, p) => a * (1 + p[k]), 1) - 1;
+  const me = chain('twr'), q = chain('qqq'), v = chain('voo'), gain = parts.reduce((a, p) => a + p.gain, 0);
+  const p = x => x == null ? '—' : fmtPct(x);
+  box.innerHTML = `<div class="statbar"><span class="statbar-title">${txYear} 年${txMonths.size ? ' ' + UI.monthsLabel(txMonths) : ''}</span>
+    <span>我的報酬率 <b class="num ${cls(me)}">${p(me)}</b></span><span>Nasdaq 100 <b class="num">${p(q)}</b></span><span>S&amp;P 500 <b class="num">${p(v)}</b></span>
+    <span>賺到的錢 <b class="num ${cls(gain)}">${fmt(gain, 'USD', { sign: true, digits: 0 })}</b></span></div>`;
+}
+// 只看某一年：已實現事件、股息等都只留那一年的
+function yearView(st, y, months) {
+  if (y === 'all') return st;
+  const inY = d => d.startsWith(y) && (!months?.size || months.has(d.slice(5, 7)));
+  const stockEvents = st.stockEvents.filter(e => inY(e.date)), optEvents = st.optEvents.filter(e => inY(e.date)), bySym = {};
+  for (const e of stockEvents) bySym[e.sym] = (bySym[e.sym] || 0) + e.r;
+  let div = 0, divN = 0, refund = 0, interest = 0, outside = 0;
+  for (const t of data.transactions) {
+    if ((t.type !== 'income' && t.type !== 'expense') || t.currency !== 'USD' || !inY(t.date)) continue;
+    const v = (t.type === 'income' ? 1 : -1) * t.amount, c = t.category || '';
+    if (c.startsWith('股息')) { div += v; divN++; } else if (c.startsWith('退稅')) refund += v;
+    else if (c.startsWith('利息')) interest += v; else if (c.startsWith('帳外獲利')) outside += v;
+  }
+  const sum = a => a.reduce((s, e) => s + e.r, 0);
+  return { ...st, year: months?.size ? `${y} 年 ${UI.monthsLabel(months)}` : y, stockEvents, optEvents, bySym, stock: sum(stockEvents), sells: stockEvents.length, option: sum(optEvents),
+           closes: optEvents.filter(e => !e.expired).length, expired: optEvents.filter(e => e.expired).length, open: 0, partial: 0,
+           div, divN, refund, interest, outside };
+}
 // 勝率：每一筆已實現損益算一次（股票＝每筆賣出，選擇權＝每筆平倉或到期）；正負 1 分錢以內算打平
 function winStats(events) {
-  const wins = events.filter(e => e.r > 0.005), losses = events.filter(e => e.r < -0.005);
+  // 賺超過 1 分錢才算勝，其他（包括打平）都算敗
+  const wins = events.filter(e => e.r > 0.005), losses = events.filter(e => e.r <= 0.005);
   const sumW = wins.reduce((a, e) => a + e.r, 0), sumL = losses.reduce((a, e) => a + e.r, 0);
   return {
-    n: events.length, w: wins.length, l: losses.length, t: events.length - wins.length - losses.length,
-    rate: wins.length + losses.length ? wins.length / (wins.length + losses.length) : null,
+    n: events.length, w: wins.length, l: losses.length,
+    rate: events.length ? wins.length / events.length : null,
     avgW: wins.length ? sumW / wins.length : 0, avgL: losses.length ? sumL / losses.length : 0,
     pf: sumL ? sumW / -sumL : null, total: sumW + sumL,
     best: events.reduce((a, e) => (!a || e.r > a.r ? e : a), null), worst: events.reduce((a, e) => (!a || e.r < a.r ? e : a), null),
@@ -651,10 +399,10 @@ function winStats(events) {
 }
 function winTable(rows) {
   const pct = v => v == null ? '—' : (v * 100).toFixed(0) + '%';
-  return `<div class="table-wrap" style="margin:6px 0 0;padding:0"><table class="win-table"><thead><tr>
+  return `<div class="table-wrap"><table class="table"><thead><tr>
     <th>類別</th><th>筆數</th><th>勝率</th><th>勝／敗</th><th>平均賺</th><th>平均賠</th><th>獲利因子</th><th>合計</th></tr></thead><tbody>
     ${rows.filter(([, w]) => w.n).map(([k, w]) => `<tr><td>${k}</td><td class="num">${w.n}</td><td class="num"><b>${pct(w.rate)}</b></td>
-      <td class="num">${w.w}／${w.l}${w.t ? `<span class="muted">（平 ${w.t}）</span>` : ''}</td>
+      <td class="num">${w.w}／${w.l}</td>
       <td class="num up">${fmt(w.avgW, 'USD', { sign: true })}</td><td class="num down">${fmt(w.avgL, 'USD', { sign: true })}</td>
       <td class="num">${w.pf == null ? '—' : w.pf.toFixed(2)}</td><td class="num ${cls(w.total)}">${fmt(w.total, 'USD', { sign: true })}</td></tr>`).join('')}
   </tbody></table></div>`;
@@ -669,7 +417,7 @@ function renderPnl(st) {
   const dividends = st.div + st.refund;
   const panels = {
     all: { k: '總已實現損益', v: st.stock + st.option + dividends + st.outside,
-      s: [firstDate ? `期間 ${firstDate} 起・股票 + 選擇權 + 股息${st.outside ? ' + 帳外獲利' : ''}` : ''],
+      s: [st.year ? `${st.year}${/月$/.test(st.year) ? '' : ' 年'}・股票 + 選擇權 + 股息${st.outside ? ' + 帳外獲利' : ''}` : firstDate ? `期間 ${firstDate} 起・股票 + 選擇權 + 股息${st.outside ? ' + 帳外獲利' : ''}` : ''],
       parts: [['trade', '股票', st.stock], ['option', '選擇權', st.option], ['cash', '股息', dividends],
               ...(st.outside ? [['cash', '帳外獲利', st.outside]] : [])] },
     trade: { k: '股票已實現損益', v: st.stock,
@@ -697,7 +445,7 @@ function renderPnl(st) {
       ${fx ? `<div class="s num">≈ ${fmt(pn.v * fx, 'TWD', { sign: true })}</div>` : ''}</div>
     ${pn.parts ? `<div class="pnl-parts">${pn.parts.map(([f, k, v]) => `<button class="pnl-part" data-f="${f}"><span class="k">${k}</span><span class="num ${cls(v)}">${sign(v)}</span></button>`).join('')}</div>` : ''}
     <div class="s pnl-notes">${pn.s.filter(Boolean).join('<br>')}</div>
-    ${pn.table ? `<div style="flex-basis:100%">${pn.table}<div class="s" style="margin-top:4px">勝率＝賺錢筆數 ÷（賺＋賠筆數）；獲利因子＝總賺 ÷ 總賠，大於 1 代表整體賺錢</div></div>` : ''}
+    ${pn.table ? `<div style="flex-basis:100%;min-width:0;max-width:100%">${pn.table}<div class="s" style="margin-top:4px">勝率＝賺錢筆數 ÷ 全部筆數（打平算敗）；獲利因子＝總賺 ÷ 總賠，大於 1 代表整體賺錢</div></div>` : ''}
   </div>`;
 }
 
@@ -736,9 +484,28 @@ function optName(sym, fallback = '') {
 
 const TX_LABEL = { buy: '買進', sell: '賣出', income: '收入', expense: '支出', fx: '換匯', adjust: '調整持股', cashAdjust: '調整現金', option: '選擇權', expire: '到期' };
 function renderTx() {
+  if (!has('#txBody')) return;   // 只有交易紀錄頁才有
   const st = realizedStats();
-  renderPnl(st);
+  // 期間選擇器：有紀錄的年份、月份才能選
+  const ym = new Set(data.transactions.map(t => t.date.slice(0, 7)));
+  const years = [...new Set([...ym].map(k => k.slice(0, 4)))].sort().reverse();
+  if (txYear !== 'all' && !years.includes(txYear)) { txYear = 'all'; txMonths = new Set(); }
+  const value = { y: txYear, months: txMonths };
+  if (txPicker) txPicker.update(value);
+  else txPicker = UI.periodPicker($('#txPicker'), { years: () => years, hasMonth: (y, m) => ym.has(`${y}-${m}`), value,
+    onChange: v => { txYear = v.y; txMonths = v.months; txLimit = 30; syncTxUrl(); renderTx(); } });
+  renderPnl(yearView(st, txYear, txMonths));
+  renderTxPeriod();
   let list = [...data.transactions, ...st.expiries].sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
+  if (txYear !== 'all') list = list.filter(t => t.date.startsWith(txYear) && (!txMonths.size || txMonths.has(t.date.slice(5, 7))));
+  if (txSearch) {
+    // 代號搜尋：股票、選擇權（含標的）、股息都比對
+    const hit = t => [t.symbol, t.symbol && occ(t.symbol)?.root, t.category].some(v => v && String(v).toUpperCase().includes(txSearch));
+    list = list.filter(hit);
+  }
+  const sg = txSearch && (window.symGroup?.(txSearch) || { g: txSearch, name: txSearch });
+  $('#txSymLink').innerHTML = txSearch && list.length ? `<a class="card-link" href="/symbol?s=${encodeURIComponent(sg.g)}">看 ${esc(sg.name)} 的完整分析 →</a>` : '';
+  $('#txCount').textContent = txSearch || txYear !== 'all' ? `${list.length} 筆` : '';
   if (txFilter === 'trade') list = list.filter(t => ['buy', 'sell', 'adjust'].includes(t.type));
   if (txFilter === 'option') list = list.filter(t => t.type === 'option' || t.type === 'expire');
   if (txFilter === 'cash') list = list.filter(t => ['income', 'expense'].includes(t.type));
@@ -747,48 +514,53 @@ function renderTx() {
   $('#txBody').innerHTML = shown.length ? shown.map(t => {
     let content = '', amount = '';
     switch (t.type) {
-      case 'buy': content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ ${fmt(t.price)}`; amount = t.fromCash ? `<span class="muted">${fmt(-t.total, 'USD')}</span>` : `<span class="muted">${fmt(t.total)}</span>`; break;
-      case 'sell': { const r = st.perSell[t.id]; content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ ${fmt(t.price)}`; amount = fmt(t.total, 'USD', { sign: true }) + (r != null ? `<br><span style="font-size:12px" class="${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>` : ''); break; }
-      case 'income': content = (t.category === '帳外獲利' ? '帳外獲利 <span class="muted" style="font-size:12px">（計入獲利，不算入金）</span>' : esc(t.category || '收入'))
+      case 'buy': content = t.split ? `<b>${esc(t.symbol)}</b> 股票分割，多 ${fmtShares(t.shares)} 股` : `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ <span class="money">${fmt(t.price)}</span>`; amount = t.fromCash ? `<span class="muted">${fmt(-t.total, 'USD')}</span>` : `<span class="muted">${fmt(t.total)}</span>`; break;
+      case 'sell': { const r = st.perSell[t.id]; content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.shares)} 股 @ <span class="money">${fmt(t.price)}</span>`; amount = fmt(t.total, 'USD', { sign: true }) + (r != null ? `<br><span class="rz ${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>` : ''); break; }
+      case 'income': content = (t.category === '帳外獲利' ? '帳外獲利 <span class="card-note">（計入獲利，不算入金）</span>' : esc(t.category || '收入'))
           + (/^(入金|帳外獲利)/.test(t.category || '')
           ? ` <button class="ghost" style="font-size:11px;padding:1px 6px;color:var(--text-3)" data-reclass="${t.id}" title="${t.category === '帳外獲利' ? '改回入金：這筆是自己存進來的錢' : '如果這筆其實是在別處投資賺到、轉進來的錢，按這裡把它算成獲利'}">${t.category === '帳外獲利' ? '↺ 改回入金' : '↺ 改成帳外獲利'}</button>` : ''); amount = `<span class="up">${fmt(t.amount, t.currency, { sign: true })}</span>`; break;
       case 'expense': content = esc(t.category || '支出'); amount = `<span class="down">${fmt(-t.amount, t.currency, { sign: true })}</span>`; break;
       case 'fx': content = `${fmt(t.fromAmount, t.from)} → ${fmt(t.toAmount, t.to)}`; amount = `<span class="muted">匯率 ${(t.from === 'TWD' ? t.fromAmount / t.toAmount : t.toAmount / t.fromAmount).toFixed(3)}</span>`; break;
-      case 'adjust': content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.before.shares)} → ${fmtShares(t.after.shares)} 股，成本 ${fmt(t.before.cost)} → ${fmt(t.after.cost)}`; break;
+      case 'adjust': content = `<b>${esc(t.symbol)}</b> ${fmtShares(t.before.shares)} → ${fmtShares(t.after.shares)} 股，成本 <span class="money">${fmt(t.before.cost)} → ${fmt(t.after.cost)}</span>`; break;
       case 'option': {
         const r = st.perOpt[t.id];
         content = esc([t.action ? t.action.toUpperCase() : '', t.qty > 0 ? 'BUY' : t.qty < 0 ? 'SELL' : '', optName(t.symbol, t.desc)].filter(Boolean).join(' '));
         amount = fmt(t.amount, 'USD', { sign: true }) + (t.id in st.perOpt
-          ? (r == null ? '<br><span class="muted" style="font-size:12px">缺開倉成本</span>' : `<br><span style="font-size:12px" class="${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>`)
+          ? (r == null ? '<br><span class="rz muted">缺開倉成本</span>' : `<br><span class="rz ${cls(r)}">已實現 ${fmt(r, 'USD', { sign: true })}</span>`)
           : '');
         break;
       }
       case 'expire':
         content = esc(`EXPIRE ${optName(t.symbol, t.desc)}`) + ` <span class="muted">${fmtShares(Math.abs(t.qty))} 口</span>`;
-        amount = `<span class="muted">$0.00</span><br><span style="font-size:12px" class="${cls(t.realized)}">已實現 ${fmt(t.realized, 'USD', { sign: true })}</span>`;
+        amount = `<span class="muted">$0.00</span><br><span class="rz ${cls(t.realized)}">已實現 ${fmt(t.realized, 'USD', { sign: true })}</span>`;
         break;
-      case 'cashAdjust': content = `${t.currency} 現金 ${fmt(t.before, t.currency)} → ${fmt(t.after, t.currency)}`; break;
+      case 'cashAdjust': content = `${t.currency} 現金 <span class="money">${fmt(t.before, t.currency)} → ${fmt(t.after, t.currency)}</span>`; break;
     }
     return `<tr>
       <td class="num">${t.date}</td>
-      <td style="text-align:left"><span class="tx-type">${TX_LABEL[t.type] || t.type}</span></td>
-      <td style="text-align:left">${content}</td>
+      <td class="l"><span class="badge">${TX_LABEL[t.type] || t.type}</span></td>
+      <td class="l">${content}</td>
       <td class="num">${amount}</td>
       <td class="muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(t.note || '')}</td>
     </tr>`;
   }).join('') : `<tr><td colspan="5" class="empty">尚無紀錄</td></tr>`;
 }
 
+
 // ============ Chart ============
 function renderChart() {
   const box = $('#chartBox');
+  if (!box.clientWidth) return;   // 在別的分頁時不畫
   const cur = data.settings.displayCurrency;
   $('#chartCurLabel').textContent = '(' + cur + ')';
   const pts = inRange(data.history, chartRange).map(h => ({ date: h.date, v: cur === 'TWD' ? h.twd : h.usd }));
+  $$('#chartModeSeg button').forEach(b => b.classList.toggle('on', b.dataset.cmode === chartMode));
+  $('#chartLegend').innerHTML = '';
   if (pts.length < 2) {
     box.innerHTML = `<div class="empty" style="padding-top:80px">資料累積兩天以上就會出現走勢圖（目前 ${pts.length} 筆）</div>`;
     return;
   }
+  if (chartMode === 'principal') return renderPrincipalChart(box, pts, cur);
   const W = box.clientWidth, H = box.clientHeight, padL = 64, padR = 12, padT = 10, padB = 24;
   const vals = pts.map(p => p.v);
   let min = Math.min(...vals), max = Math.max(...vals);
@@ -803,6 +575,15 @@ function renderChart() {
   const compact = v => cur === 'TWD'
     ? (v >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : (v / 1e3).toFixed(0) + 'K')
     : (v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : '$' + (v / 1e3).toFixed(1) + 'K');
+  // 入金、出金、帳外獲利：標在線上（落在非交易日的，標在下一個有資料的日子）
+  const events = {};
+  for (const t of data.transactions) {
+    if ((t.type !== 'income' && t.type !== 'expense') || !/^(入金|出金|帳外獲利)/.test(t.category || '')) continue;
+    if (t.date < pts[0].date || t.date > pts.at(-1).date) continue;
+    const at = pts.find(p => p.date >= t.date)?.date;
+    if (at) (events[at] ??= []).push(`${t.category} ${fmt(t.type === 'income' ? t.amount : -t.amount, t.currency, { sign: true })}`);
+  }
+  const marks = pts.filter(p => events[p.date]);
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="總資產走勢">
     <defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
       <stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/>
@@ -813,6 +594,7 @@ function renderChart() {
     <text class="axis-text" x="${W - padR}" y="${H - 4}" text-anchor="end">${pts[pts.length - 1].date}</text>
     <path d="${area}" fill="url(#g)"/>
     <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${marks.map(p => `<circle cx="${x(p.date)}" cy="${y(p.v)}" r="4" fill="var(--surface)" stroke="var(--text-2)" stroke-width="1.5"><title>${p.date} ${events[p.date].join('、')}</title></circle>`).join('')}
     <line id="cx" y1="${padT}" y2="${H - padB}" stroke="var(--text-3)" stroke-width="1" visibility="hidden"/>
     <circle id="cd" r="4.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>
     <rect x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent" id="hit"/>
@@ -826,15 +608,83 @@ function renderChart() {
     cx.setAttribute('x1', px); cx.setAttribute('x2', px); cx.setAttribute('visibility', 'visible');
     cd.setAttribute('cx', px); cd.setAttribute('cy', py); cd.setAttribute('visibility', 'visible');
     tip.hidden = false; tip.style.left = Math.min(Math.max(px, 70), W - 70) + 'px'; tip.style.top = py + 'px';
-    tip.innerHTML = `${best.date}　<b>${fmt(best.v, cur)}</b>`;
+    tip.innerHTML = `${best.date}　<b>${fmt(best.v, cur)}</b>` + (events[best.date] ? `<div style="margin-top:3px">◦ ${events[best.date].join('<br>◦ ')}</div>` : '');
   };
   hit.addEventListener('pointermove', move);
+  hit.addEventListener('pointerleave', () => { cx.setAttribute('visibility', 'hidden'); cd.setAttribute('visibility', 'hidden'); tip.hidden = true; });
+}
+
+// ============ 本金與獲利：總資產拆成「投入的本金」和「賺到的錢」 ============
+// 本金＝開始那天的總資產＋之後的入金減出金（帳外獲利算賺的，不算本金）；跟區間無關，一直從頭累計
+function principalSeries(cur) {
+  const h0 = data.history[0], out = {};
+  if (!h0) return out;
+  const fxAt = d => (data.history.find(h => h.date >= d) || {}).fx || fx || 1;
+  const flows = externalFlows().filter(f => f.date > h0.date).sort((a, b) => a.date.localeCompare(b.date));
+  let p = cur === 'TWD' ? h0.twd : h0.usd, i = 0;
+  for (const h of data.history) {
+    while (i < flows.length && flows[i].date <= h.date) { p += cur === 'TWD' ? flows[i].usd * fxAt(flows[i].date) : flows[i].usd; i++; }
+    out[h.date] = p;
+  }
+  return out;
+}
+function renderPrincipalChart(box, pts, cur) {
+  const ps = principalSeries(cur);
+  for (const p of pts) p.p = ps[p.date] ?? p.v;
+  const W = box.clientWidth, H = box.clientHeight, padL = 64, padR = 12, padT = 10, padB = 24;
+  const vals = pts.flatMap(p => [p.v, p.p]);
+  let min = Math.min(...vals, 0), max = Math.max(...vals);
+  max += (max - min) * 0.08;
+  const t0 = +new Date(pts[0].date), t1 = +new Date(pts.at(-1).date);
+  const x = d => padL + (+new Date(d) - t0) / (t1 - t0) * (W - padL - padR);
+  const y = v => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
+  const path = k => pts.map((p, i) => (i ? 'L' : 'M') + x(p.date).toFixed(1) + ',' + y(p[k]).toFixed(1)).join('');
+  const back = k => [...pts].reverse().map(p => 'L' + x(p.date).toFixed(1) + ',' + y(p[k]).toFixed(1)).join('');
+  const xa = x(pts[0].date).toFixed(1), xb = x(pts.at(-1).date).toFixed(1), base = H - padB;
+  const pLine = path('p'), vLine = path('v');
+  const between = vLine + back('p') + 'Z';                                   // 總資產和本金之間
+  const above = pLine + `L${xb},${padT}L${xa},${padT}Z`, below = pLine + `L${xb},${base}L${xa},${base}Z`;
+  const ticks = [0, 0.5, 1].map(f => min + (max - min) * f);
+  const compact = v => cur === 'TWD' ? (Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : (v / 1e3).toFixed(0) + 'K')
+    : (Math.abs(v) >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : '$' + (v / 1e3).toFixed(1) + 'K');
+  const last = pts.at(-1), gain = last.v - last.p;
+  $('#chartLegend').innerHTML = `<span class="legend-item"><span class="swatch" style="border-color:var(--accent)"></span>總資產 <b class="num">${fmt(last.v, cur)}</b></span>
+    <span class="legend-item"><span class="swatch dash" style="border-color:var(--text-2)"></span>投入的本金 <b class="num">${fmt(last.p, cur)}</b></span>
+    <span class="legend-item"><span class="dot" style="background:color-mix(in srgb, var(${gain >= 0 ? '--up' : '--down'}) 45%, transparent)"></span>賺到的錢 <b class="num ${cls(gain)}">${fmt(gain, cur, { sign: true })}</b></span>`;
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="本金與獲利">
+    <defs><clipPath id="pcA"><path d="${above}"/></clipPath><clipPath id="pcB"><path d="${below}"/></clipPath></defs>
+    ${ticks.map(t => `<line x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" stroke-dasharray="2 4"/>
+      <text class="axis-text" x="${padL - 8}" y="${y(t) + 4}" text-anchor="end">${compact(t)}</text>`).join('')}
+    <text class="axis-text" x="${padL}" y="${H - 4}">${pts[0].date}</text>
+    <text class="axis-text" x="${W - padR}" y="${H - 4}" text-anchor="end">${last.date}</text>
+    <path d="${pLine}L${xb},${base}L${xa},${base}Z" fill="var(--text-3)" opacity=".16"/>
+    <path d="${between}" fill="var(--up)" opacity=".3" clip-path="url(#pcA)"/>
+    <path d="${between}" fill="var(--down)" opacity=".3" clip-path="url(#pcB)"/>
+    <path d="${pLine}" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <path d="${vLine}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <line id="cx" y1="${padT}" y2="${base}" stroke="var(--text-3)" stroke-width="1" visibility="hidden"/>
+    <circle id="cd" r="4.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>
+    <rect x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent" id="hit"/>
+  </svg><div class="chart-tip" id="tip" hidden></div>`;
+  const hit = box.querySelector('#hit'), cx = box.querySelector('#cx'), cd = box.querySelector('#cd'), tip = box.querySelector('#tip');
+  hit.addEventListener('pointermove', e => {
+    const mx = e.clientX - box.getBoundingClientRect().left;
+    let best = pts[0];
+    for (const p of pts) if (Math.abs(x(p.date) - mx) < Math.abs(x(best.date) - mx)) best = p;
+    const px = x(best.date), py = y(best.v), g = best.v - best.p;
+    cx.setAttribute('x1', px); cx.setAttribute('x2', px); cx.setAttribute('visibility', 'visible');
+    cd.setAttribute('cx', px); cd.setAttribute('cy', py); cd.setAttribute('visibility', 'visible');
+    tip.hidden = false; tip.style.left = Math.min(Math.max(px, 90), W - 90) + 'px'; tip.style.top = py + 'px';
+    tip.innerHTML = `<div style="margin-bottom:3px">${best.date}</div><div class="row"><span>總資產</span><b>${fmt(best.v, cur)}</b></div>
+      <div class="row"><span>本金</span><b>${fmt(best.p, cur)}</b></div><div class="row"><span>賺到的錢</span><b>${fmt(g, cur, { sign: true })}</b></div>`;
+  });
   hit.addEventListener('pointerleave', () => { cx.setAttribute('visibility', 'hidden'); cd.setAttribute('visibility', 'hidden'); tip.hidden = true; });
 }
 
 // ============ 槓桿率走勢 ============
 function renderLev() {
   const box = $('#levBox'), stats = $('#levStats');
+  if (!box.clientWidth) return;   // 在別的分頁時不畫
   const pts = inRange(data.history, levRange).filter(h => h.exp != null && h.usd > 0)
     .map(h => ({ date: h.date, v: h.exp / h.usd, exp: h.exp, usd: h.usd }));
   if (pts.length < 2) {
@@ -908,6 +758,8 @@ async function loadBench() {
     bench = await r.json();
   } catch { bench = null; }
   renderCompare();
+  if (has('#txPeriod')) renderTxPeriod();   // 期間績效要用到指數的歷史價
+  if (typeof renderExtras === 'function') renderExtras();
 }
 function lastOnOrBefore(series, d) {
   let bd = '', v = null;
@@ -967,6 +819,7 @@ function compareSeries() {
 }
 function renderCompare() {
   const box = $('#cmpBox'), leg = $('#cmpLegend'), note = $('#cmpNote');
+  if (!box.clientWidth) return;   // 在別的分頁時不畫
   const series = compareSeries();
   if (!series) {
     leg.innerHTML = ''; note.textContent = '';
@@ -1108,7 +961,9 @@ function buildImport(trades, positions) {
   const fresh = trades.filter(r => { if (existing.has(r.key)) { plan.dup++; return false; } return true; });
 
   // 先找出手動記過的同一筆交易（同代號、同方向、同股數、日期差 3 天內）：改用券商的精確數字取代
-  const isStock = r => (/^(買進|賣出)/.test(r.kind) || r.kind === '其他') && r.sym && r.qty && !OPT_RE.test(r.sym);
+  // 帳戶類別之間的移轉（現金帳戶 ↔ 融資帳戶，例如 TFR TO TYPE 1、TFR CASH TO MARGIN）每檔一進一出、金額 0，不是買賣
+  const isXfer = r => r.kind === '其他' && /\bTFR\b/i.test(r.desc) && !r.amt;
+  const isStock = r => (/^(買進|賣出)/.test(r.kind) || r.kind === '其他') && r.sym && r.qty && !OPT_RE.test(r.sym) && !isXfer(r);
   const manual = data.transactions.filter(t => !t.key && !t.imported && (t.type === 'buy' || t.type === 'sell'));
   const matchOf = new Map();
   for (const r of fresh.filter(isStock)) {
@@ -1131,6 +986,7 @@ function buildImport(trades, positions) {
   const ordered = [...fresh].sort((a, b) => a.date.localeCompare(b.date) || (b.qty > 0) - (a.qty > 0) || a.i - b.i);
   for (const r of ordered) {
     // 持倉同步日之後的交易才更新持股與現金；之前的只記錄（持股已包含），但被取代的手動紀錄一定要重新套用
+    if (isXfer(r)) { plan.ignored++; continue; }
     const live = r.date > sync || matchOf.has(r.key);
     const isOpt = OPT_RE.test(r.sym);
     const base = { date: r.date, imported: true, key: r.key, note: '券商匯入' };
@@ -1139,8 +995,9 @@ function buildImport(trades, positions) {
       const type = r.qty > 0 ? 'buy' : 'sell', shares = Math.abs(r.qty);
       if (type === 'buy') {
         const total = round(-r.amt, 4);
+        const split = /STK SPLIT/i.test(r.desc) && !total;   // 分割多出來的股數，成本 0
         tx = { type, symbol: r.sym, shares, price: r.price || round(total / shares, 4), fee: r.price ? round(total - shares * r.price, 4) : 0, total, fromCash: true, ...base,
-               note: r.kind === '其他' ? '股息再投入' : base.note };
+               note: split ? '股票分割' : r.kind === '其他' ? '股息再投入' : base.note, ...(split ? { split: true } : {}) };
         if (live) {
           eff = { holding: { symbol: r.sym, shares, cost: total }, cash: { USD: r.amt } };
           const h = sim[r.sym] ??= { shares: 0, cost: 0 }; h.shares = round(h.shares + shares); h.cost = round(h.cost + total, 4);
@@ -1389,10 +1246,17 @@ async function rebuildHistory() {
     // 3) 價格：Yahoo 收盤價；查不到的（下市、改名）用自己的成交價代替
     const tradePx = {};
     for (const t of data.transactions) if ((t.type === 'buy' || t.type === 'sell') && t.price) (tradePx[t.symbol] ??= {})[t.date] = t.price;
-    // 分割校正：Yahoo 歷史價已按之後的（反向）分割調整過，跟當時股數對不上；用自己的成交價比對算出倍數
+    // 分割：Yahoo 的歷史價已按分割調整過。券商紀錄裡有分割那一列的，分割前的日子乘回倍數（分割後股數 ÷ 分割前股數）
+    const splitAt = {};
+    for (const t of data.transactions.filter(t => t.split)) {
+      const prev = days.filter(d => d < t.date).at(-1), before = prev ? snap[prev].pos[t.symbol] : null;
+      if (before > 1e-9) (splitAt[t.symbol] ??= []).push({ date: t.date, m: (before + t.shares) / before });
+    }
+    const splitScale = (s, d) => (splitAt[s] || []).reduce((m, x) => d < x.date ? m * x.m : m, 1);
+    // 其他分割校正（券商紀錄裡沒有分割那一列的）：用自己的成交價比對 Yahoo 收盤價算出倍數
     const scale = {};
     for (const [s, tp] of Object.entries(tradePx)) {
-      if (!px[s] || px[s].error) continue;
+      if (!px[s] || px[s].error || splitAt[s]) continue;
       const ratios = Object.entries(tp).map(([d, p]) => { const c = px[s][d]; return c ? p / c : null; }).filter(Boolean).sort((a, b) => a - b);
       if (!ratios.length) continue;
       const med = ratios[Math.floor(ratios.length / 2)];
@@ -1400,7 +1264,7 @@ async function rebuildHistory() {
     }
     const priceOf = (s, d) => {
       const c = px[s] && !px[s].error ? lastOnOrBefore(px[s], d) : null;
-      if (c != null) return c * (scale[s] || 1);
+      if (c != null) return c * (scale[s] || splitScale(s, d));
       const tp = tradePx[s];
       if (!tp) return quotes[s]?.price ?? 0;
       return lastOnOrBefore(tp, d) ?? tp[Object.keys(tp).sort()[0]];
@@ -1424,7 +1288,8 @@ async function rebuildHistory() {
       }
       const opt0 = Object.values(optState).reduce((a, o) => a + (o.pos ? o.carry : 0), 0);
       const usd0 = stock0 + opt0 + (cash0.USD || 0);
-      out.push({ date: prevDay, usd: round(usd0, 2), twd: Math.round(usd0 * rate0), fx: round(rate0, 4), exp: round(exp0, 2), backfilled: true, base: true });
+      // 紀錄從開戶開始（之前沒有任何持股與現金）就不放起點，走勢才不會從 0 跳上去
+      if (stock0 > 1 || Math.abs(opt0) > 1 || (cash0.USD || 0) > 50) out.push({ date: prevDay, usd: round(usd0, 2), twd: Math.round(usd0 * rate0), fx: round(rate0, 4), exp: round(exp0, 2), backfilled: true, base: true });
     }
     for (const d of days) {
       const s = snap[d], rate = lastOnOrBefore(fxSeries, d) || fx;
@@ -1478,12 +1343,11 @@ const FORMS = {
     if (plan.dup) li.push(`已匯入過的 ${plan.dup} 筆：略過`);
     if (plan.replaced.length) li.push(`券商改寫過的舊紀錄 ${plan.replaced.length} 筆（改了日期、類別，或把多筆成交合併），以新檔案為準<br><span class="muted">${
       plan.replaced.slice(0, 6).map(t => `${t.date} ${t.type === 'option' ? optName(t.symbol) : t.symbol} ${TX_LABEL[t.type]} ${t.type === 'option' ? fmtShares(Math.abs(t.qty)) + ' 口' : fmtShares(t.shares) + ' 股'}`).join('<br>')}${plan.replaced.length > 6 ? '<br>…' : ''}</span>`);
-    if (plan.ignored) li.push(`<span class="muted">另有 ${plan.ignored} 筆帳戶間轉帳（進出互相抵銷），不需處理</span>`);
     if (plan.manual.length) li.push(`你手動記錄過的 ${plan.manual.length} 筆：視為同一筆，改用券商的精確數字<br><span class="muted">${plan.manual.map(m => `${m.date} ${m.symbol} ${TX_LABEL[m.type]} ${fmtShares(m.shares)} 股`).join('<br>')}</span>`);
     if (plan.skipped.length) li.push(`無法處理 ${plan.skipped.length} 筆：<br><span class="muted">${plan.skipped.slice(0, 5).map(esc).join('<br>')}${plan.skipped.length > 5 ? '<br>…' : ''}</span>`);
     const adj = plan.adjusts.length
       ? `<div style="font-size:13px;margin-bottom:6px">依持倉檔校正持股：</div>
-         <div class="table-wrap" style="margin:0"><table class="imp-table"><thead><tr><th>代號</th><th>股數</th><th>成本</th></tr></thead><tbody>
+         <div class="table-wrap"><table class="imp-table"><thead><tr><th>代號</th><th>股數</th><th>成本</th></tr></thead><tbody>
          ${plan.adjusts.map(a => `<tr><td>${esc(a.symbol)}</td><td class="num">${fmtShares(a.before.shares)} → ${fmtShares(a.after.shares)}</td><td class="num">${fmt(a.before.cost)} → ${fmt(a.after.cost)}</td></tr>`).join('')}
          </tbody></table></div>`
       : plan.hasPositions ? '<div class="muted" style="font-size:13px;margin-bottom:12px">持倉檔與目前持股一致，不需校正。</div>' : '';
@@ -1520,6 +1384,7 @@ form.addEventListener('submit', e => {
 document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.cur) { data.settings.displayCurrency = b.dataset.cur; save(); render(); }
+  else if (b.dataset.cmode) { chartMode = b.dataset.cmode; try { localStorage.setItem('asset.chartMode', chartMode); } catch {} renderChart(); }
   else if (b.dataset.range) { chartRange = b.dataset.range; renderChart(); $$('#rangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
   else if (b.dataset.lrange) { levRange = b.dataset.lrange; renderLev(); $$('#levRangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
   else if (b.dataset.crange) { cmpRange = b.dataset.crange; renderCompare(); $$('#cmpRangeSeg button').forEach(x => x.classList.toggle('on', x === b)); }
@@ -1544,6 +1409,7 @@ $('#exportBtn').onclick = () => {
 $('#brokerBtn').onclick = () => $('#brokerFile').click();
 $('#brokerFile').onchange = e => { const f = [...e.target.files]; e.target.value = ''; handleBrokerFiles(f); };
 // 也可以直接把檔案拖進網頁
+document.addEventListener('input', e => { if (e.target.id === 'txSearch') { txSearch = e.target.value.trim().toUpperCase(); txLimit = 30; renderTx(); } });
 document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => {
   e.preventDefault();
@@ -1567,6 +1433,3 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && (!
   if (data.settings.levVersion !== 3 && data.transactions.some(t => t.imported)) rebuildHistory();
 })();
 setInterval(loadBench, 10 * 60000);
-</script>
-</body>
-</html>

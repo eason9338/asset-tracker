@@ -1,0 +1,16 @@
+<!-- 槓桿與選擇權 -->
+<div class="col span-12">
+  <div class="card">
+    <div class="card-head">
+      <h2>槓桿率走勢</h2>
+      <span class="seg" id="levRangeSeg"><button data-lrange="30">1月</button><button data-lrange="90">3月</button><button data-lrange="180">6月</button><button data-lrange="ytd">今年</button><button data-lrange="365">1年</button><button data-lrange="0">全部</button></span>
+    </div>
+    <div class="legend" id="levStats"></div>
+    <div class="chart-box tall" id="levBox"></div>
+    <div class="note">槓桿率 = 曝險 ÷ 淨資產。槓桿 ETF 依倍數計入；買方選擇權以 delta 計算曝險（過去以標的 30 日實際波動率估算，今天用即時報價反推）；賣方選擇權（sell call／sell put）不計入。</div>
+  </div>
+  <div class="card" id="optRiskCard">
+    <div class="card-head"><h2>選擇權部位風險</h2></div>
+    <div id="optRiskBox"></div>
+  </div>
+</div>

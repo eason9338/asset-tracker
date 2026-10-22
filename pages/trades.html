@@ -1,0 +1,24 @@
+<!-- 交易紀錄：已實現損益、勝率、每一筆紀錄 -->
+<div class="col span-12">
+  <div class="card">
+    <div class="card-head">
+      <h2>已實現損益與紀錄</h2>
+      <div class="seg" id="txFilter"><button data-f="all">全部</button><button data-f="trade">股票</button><button data-f="option">選擇權</button><button data-f="cash">資金・股息</button></div>
+    </div>
+    <div class="toolbar">
+      <div class="picker" id="txPicker"></div>
+      <input id="txSearch" class="search" type="search" placeholder="搜尋代號，例如 TSLL" autocomplete="off">
+      <span class="card-note" id="txCount"></span>
+      <span class="toolbar-end" id="txSymLink"></span>
+    </div>
+    <div id="txPeriod"></div>
+    <div id="pnlGrid"></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>日期</th><th class="l">類型</th><th class="l">內容</th><th>金額</th><th>備註</th></tr></thead>
+        <tbody id="txBody"></tbody>
+      </table>
+    </div>
+    <div class="more-row"><button class="ghost" id="moreTx" hidden>顯示更多</button></div>
+  </div>
+</div>

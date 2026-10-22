@@ -1,0 +1,20 @@
+<!-- 曝險：持倉配置方塊圖、個股曝險總覽、ETF 成分股 -->
+<div class="col span-12">
+  <div class="card" id="treemapCard">
+    <div class="card-head"><h2>持倉配置</h2><span class="card-tools"><span class="card-note" id="treemapNote"></span><span class="seg"><button data-tml="sector">依產業</button><button data-tml="size">依大小</button></span><span class="seg"><button data-tmv="stock">只看股票</button><button data-tmv="all">含現金與其他</button></span></span></div>
+    <div class="chart-box treemap" id="treemapBox"></div>
+    <div class="note">ETF 依成分股拆開，同一家公司合在一起（例如 SPYM 裡的 NVDA 跟你直接買的 NVDA 加在一起）。「其他公司」是比較小的公司，加上 ETF 前 50 名以外的持股。點方塊可以看那個標的的完整紀錄。</div>
+  </div>
+</div>
+<div class="col span-7">
+  <div class="card" id="exposureCard">
+    <div class="card-head"><h2>個股曝險總覽</h2><span class="card-note" id="exposureNote"></span></div>
+    <div id="exposureBox"></div>
+  </div>
+</div>
+<div class="col span-5">
+  <div class="card" id="etfCard">
+    <div class="card-head"><h2>ETF 成分股</h2><span class="card-note">每 100 元的 ETF 裡，各買了多少錢的哪家公司</span></div>
+    <div id="etfBox"></div>
+  </div>
+</div>

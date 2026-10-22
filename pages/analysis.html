@@ -1,0 +1,23 @@
+<!-- 交易分析：依標的／持有時間／到期天數、每月已實現、交易成本 -->
+<div class="col span-7">
+  <div class="card" id="analysisCard">
+    <div class="card-head"><h2>交易分析</h2><span class="seg" id="anaSeg"><button data-ana="symbol">依標的</button><button data-ana="open">持有中</button><button data-ana="hold">依持有時間</button><button data-ana="dte">選擇權到期天數</button><button data-ana="dist">損益分布</button></span></div>
+    <div id="analysisBox"></div>
+  </div>
+  <div class="card" id="holdScatterCard">
+    <div class="card-head"><h2>持有天數與損益</h2><span class="seg"><button data-sc="all">全部</button><button data-sc="stock">股票</button><button data-sc="option">選擇權</button></span></div>
+    <div class="chart-box tall" id="holdScatterBox"></div>
+    <div id="holdScatterSum" style="margin-top:12px"></div>
+  </div>
+</div>
+<div class="col span-5">
+  <div class="card" id="monthlyCard">
+    <div class="card-head"><h2>每月已實現損益</h2><span class="seg" id="monthlySeg"><button data-mrange="6">6月</button><button data-mrange="12">1年</button><button data-mrange="0">全部</button></span></div>
+    <div class="chart-box" id="monthlyBox" style="height:240px"></div>
+    <div class="legend" id="monthlyLegend" style="margin-top:8px"></div>
+  </div>
+  <div class="card" id="feeCard">
+    <div class="card-head"><h2>交易成本</h2></div>
+    <div id="feeBox"></div>
+  </div>
+</div>
