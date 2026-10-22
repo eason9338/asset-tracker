@@ -1,4 +1,4 @@
-// 特殊功能：交易人格報告、平行宇宙、資產時光機、財報
+// 特殊功能：交易人格報告、平行宇宙、資產時光機、財報、股價
 // 只讀資料不寫入；共用函式來自 analytics.js 的 window.AX 與 app.js 的全域函式
 (() => {
 'use strict';
@@ -507,6 +507,96 @@ function renderReport() {
     { k: '股東權益報酬率', v: pct(L.roe), vcls: `num ${cls(L.roe)}`, s: '淨利 ÷ 平均淨資產' }], 'cols-2');
 }
 
+// ================= 股價 =================
+// 虛擬公司的股價＝每股淨值（總資產 ÷ 流通在外股數）；股數的算法見 rUnits
+const TICKER = 'AKIRA';
+let sRange = 'all';
+function stockSeries() {
+  const U = rUnits();
+  return data.history.filter(x => x.usd > 0 && U[x.date]).map(x => ({ date: x.date, p: x.usd / U[x.date], units: U[x.date], usd: x.usd }));
+}
+function renderStock() {
+  const box = el('sChart'); if (!box) return;
+  const all = stockSeries(); if (all.length < 2) { box.innerHTML = UI.empty('資料還不夠'); return; }
+  const last = all.at(-1), prev = all.at(-2), chg = last.p - prev.p;
+  el('sQuote').innerHTML = `<div class="s-name"><b>${TICKER}</b><span>${COMPANY}・虛擬上市</span></div>
+    <div class="s-price num">$${last.p.toFixed(2)}</div>
+    <div class="s-chg num ${cls(chg)}">${chg >= 0 ? '+' : '−'}${Math.abs(chg).toFixed(2)}（${pct(chg / prev.p)}）<span class="sub">今日・${last.date.slice(5).replace('-', '/')} 收盤</span></div>`;
+  el('sRange').innerHTML = UI.seg('sr', [['30', '1月'], ['91', '3月'], ['ytd', '今年'], ['365', '1年'], ['all', '全部']], sRange);
+  // 走勢：選的區間漲就用漲色、跌就用跌色（像看盤軟體）
+  const from = sRange === 'all' ? '' : sRange === 'ytd' ? last.date.slice(0, 4) + '-01-01' : addDays(last.date, -+sRange);
+  const pts = all.filter(x => x.date >= from);
+  const base = all.filter(x => x.date < from).at(-1) || pts[0], rc = last.p - base.p, color = rc >= 0 ? 'var(--up)' : 'var(--down)';
+  el('sRangeChg').innerHTML = `區間漲跌 <b class="num ${cls(rc)}">${rc >= 0 ? '+' : '−'}$${Math.abs(rc).toFixed(2)}（${pct(rc / base.p)}）</b>`;
+  const W = box.clientWidth, H = box.clientHeight, padL = 52, padR = 12, padT = 12, padB = 24;
+  const vals = pts.map(x => x.p).concat(sRange === 'all' ? [10] : []);
+  let min = Math.min(...vals), max = Math.max(...vals); const pad = (max - min) * 0.08 || 0.5; min -= pad; max += pad;
+  const n = pts.length, x = i => padL + i / Math.max(n - 1, 1) * (W - padL - padR), y = v => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
+  const line = pts.map((q, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(q.p).toFixed(1)).join('');
+  const ticks = [0, 0.5, 1].map(f => min + (max - min) * f);
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
+    ${ticks.map(t => `<line x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" stroke-dasharray="2 4"/><text class="axis-text" x="${padL - 8}" y="${y(t) + 4}" text-anchor="end">$${t.toFixed(2)}</text>`).join('')}
+    ${sRange === 'all' ? `<line x1="${padL}" x2="${W - padR}" y1="${y(10)}" y2="${y(10)}" stroke="var(--text-3)" stroke-dasharray="5 4"/><text class="axis-text" x="${W - padR}" y="${y(10) - 5}" text-anchor="end">發行價 $10</text>` : ''}
+    <path d="${line}L${x(n - 1)},${H - padB}L${x(0)},${H - padB}Z" fill="${color}" opacity=".08"/>
+    <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>
+    <text class="axis-text" x="${padL}" y="${H - 6}">${pts[0].date}</text><text class="axis-text" x="${W - padR}" y="${H - 6}" text-anchor="end">${last.date}</text>
+    <line class="xc" y1="${padT}" y2="${H - padB}" stroke="var(--text-3)" visibility="hidden"/><circle class="xd" r="4" fill="${color}" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>
+    <rect class="xh" x="${padL}" y="0" width="${W - padL - padR}" height="${H}" fill="transparent"/>
+  </svg><div class="chart-tip" hidden></div>`;
+  const hit = box.querySelector('.xh'), cx = box.querySelector('.xc'), dot = box.querySelector('.xd'), tip = box.querySelector('.chart-tip');
+  hit.addEventListener('pointermove', e => {
+    const i = Math.max(0, Math.min(n - 1, Math.round((e.clientX - box.getBoundingClientRect().left - padL) / (W - padL - padR) * (n - 1)))), q = pts[i], d = q.p - base.p;
+    for (const [a, v] of [['x1', x(i)], ['x2', x(i)]]) cx.setAttribute(a, v);
+    cx.setAttribute('visibility', 'visible'); dot.setAttribute('cx', x(i)); dot.setAttribute('cy', y(q.p)); dot.setAttribute('visibility', 'visible');
+    tip.hidden = false; tip.style.left = x(i) + 'px'; tip.style.top = padT + 'px'; tip.style.transform = x(i) > W / 2 ? 'translate(calc(-100% - 10px), 0)' : 'translate(10px, 0)';
+    tip.innerHTML = `<div style="margin-bottom:3px">${q.date}</div><div class="row"><span>股價</span><b>$${q.p.toFixed(2)}</b></div><div class="row"><span>區間漲跌</span><b>${pct(d / base.p)}</b></div>`;
+  });
+  hit.addEventListener('pointerleave', () => { cx.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); tip.hidden = true; });
+
+  // 關鍵數據（像券商 App 個股頁）
+  const yr = all.filter(x => x.date > addDays(last.date, -365)), hi = yr.reduce((a, b) => b.p > a.p ? b : a), lo = yr.reduce((a, b) => b.p < a.p ? b : a);
+  const ath = all.reduce((a, b) => b.p > a.p ? b : a);
+  // 近四季 EPS：過去 365 天的淨利 ÷ 平均股數
+  const t0 = all.filter(x => x.date <= addDays(last.date, -365)).at(-1) || all[0];
+  const flows = externalFlows().filter(f => f.date > t0.date && f.date <= last.date).reduce((s, f) => s + f.usd, 0);
+  const ttm = (last.usd - t0.usd - flows) / avg(all.filter(x => x.date > t0.date).map(x => x.units));
+  const rets = all.slice(1).map((q, i) => Math.log(q.p / all[i].p));
+  const vol = Math.sqrt(rets.reduce((a, r) => a + (r - avg(rets)) ** 2, 0) / (rets.length - 1) * 252);
+  let peak = 0, mdd = 0; for (const q of all) { peak = Math.max(peak, q.p); mdd = Math.min(mdd, q.p / peak - 1); }
+  const years = days(all[0].date, last.date) / 365, cagr = (last.p / 10) ** (1 / years) - 1;
+  // Beta：每天的漲跌跟 QQQ 比
+  let beta = null; const qq = bench?.QQQ;
+  if (qq && !qq.error) {
+    const pr = []; for (let i = 1; i < all.length; i++) { const a = qq[all[i - 1].date], b = qq[all[i].date]; if (a && b) pr.push([all[i].p / all[i - 1].p - 1, b / a - 1]); }
+    if (pr.length > 20) { const mx = avg(pr.map(p => p[1])), my = avg(pr.map(p => p[0])); beta = pr.reduce((s, [r, m]) => s + (r - my) * (m - mx), 0) / pr.reduce((s, [, m]) => s + (m - mx) ** 2, 0); }
+  }
+  const md = d => d.slice(5).replace('-', '/');
+  el('sStats').innerHTML = [
+    ['前一日收盤', `$${prev.p.toFixed(2)}`],
+    ['市值', usd0(last.usd)],
+    ['流通在外股數', `${Math.round(last.units).toLocaleString('en-US')} 股`],
+    ['52 週最高', `$${hi.p.toFixed(2)} <span class="muted">${md(hi.date)}</span>`],
+    ['52 週最低', `$${lo.p.toFixed(2)} <span class="muted">${md(lo.date)}</span>`],
+    ['歷史最高', `$${ath.p.toFixed(2)} <span class="muted">${ath.date.replaceAll('-', '/')}</span>`],
+    ['距離歷史最高', `<span class="${cls(last.p / ath.p - 1)}">${pct(last.p / ath.p - 1)}</span>`],
+    ['近四季 EPS', `${ttm < 0 ? '−' : ''}$${Math.abs(ttm).toFixed(2)}`],
+    ['本益比', ttm > 0 ? (last.p / ttm).toFixed(1) + ' 倍' : '—（虧損）'],
+    ['成立以來年化報酬', `<span class="${cls(cagr)}">${pct(cagr)}</span>`],
+    ['年化波動率', pctPlain(vol, 1)],
+    ['最大回撤', `<span class="down">${pct(mdd)}</span>`],
+    ['Beta（對 QQQ）', beta == null ? '—' : beta.toFixed(2)],
+  ].map(([k, v]) => UI.kv(k, `<span class="num">${v}</span>`)).join('');
+
+  // 股本變動：入金＝增資發行新股、出金＝買回股票（價格都是前一天收盤的每股淨值）
+  const fl = externalFlows().filter(f => f.date > all[0].date).sort((a, b) => b.date.localeCompare(a.date));
+  const at = d => { const i = all.findIndex(q => q.date >= d); return i > 0 ? all[i - 1] : all[0]; };
+  const after = d => (all.find(q => q.date >= d) || last).units;
+  el('sShares').innerHTML = UI.table(`<th class="l">日期</th><th class="l">事件</th><th>金額</th><th>每股價格</th><th>股數變動</th><th>變動後股數</th>`,
+    fl.map(f => { const q = at(f.date), dn = f.usd / q.p;
+      return `<tr><td class="l">${f.date.replaceAll('-', '/')}</td><td class="l">${f.usd >= 0 ? '增資（入金）' : '買回（出金）'}</td><td class="num">${usd0(Math.abs(f.usd))}</td><td class="num">$${q.p.toFixed(2)}</td><td class="num ${dn >= 0 ? '' : 'down'}">${dn >= 0 ? '+' : '−'}${Math.abs(dn).toFixed(1)}</td><td class="num">${Math.round(after(f.date)).toLocaleString('en-US')}</td></tr>`; }).join('')
+    + `<tr><td class="l">${all[0].date.replaceAll('-', '/')}</td><td class="l">開戶發行</td><td class="num">${usd0(all[0].usd)}</td><td class="num">$10.00</td><td class="num">+${all[0].units.toFixed(1)}</td><td class="num">${Math.round(all[0].units).toLocaleString('en-US')}</td></tr>`);
+}
+
 // ================= 資產時光機 =================
 const TM = { i: null, playing: null, prices: null, loading: false, built: false, speed: 1 };
 function tmModel() {
@@ -698,13 +788,14 @@ function tmUpdate() {
 }
 
 // ================= 掛到畫面更新與事件 =================
-window.EXTRA_PARTS = [['personaBox', renderPersona], ['universeChart', renderUniverse], ['tmControls', tmUpdate], ['rSankey', renderReport]];
+window.EXTRA_PARTS = [['personaBox', renderPersona], ['universeChart', renderUniverse], ['tmControls', tmUpdate], ['rSankey', renderReport], ['sChart', renderStock]];
 document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.py) { pYear = b.dataset.py; renderPersona(); }
   else if (b.dataset.ur) { uRange = b.dataset.ur; renderUniverse(); }
   else if (b.dataset.rk) { rKind = b.dataset.rk; rPeriod = null; renderReport(); }
   else if (b.dataset.rp) { rPeriod = b.dataset.rp; renderReport(); }
+  else if (b.dataset.sr) { sRange = b.dataset.sr; renderStock(); }
   else if (b.dataset.tm === 'play') tmPlay(!TM.playing);
   else if (b.dataset.tm) { tmPlay(false); tmGo(TM.i + +b.dataset.tm); }
   else if (b.dataset.tmj != null) { tmPlay(false); tmGo(+b.dataset.tmj); }

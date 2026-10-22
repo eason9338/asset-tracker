@@ -494,6 +494,15 @@ a.sym-link:hover { color: var(--accent); text-decoration: underline; }
 .fs-sub { font-size: var(--fs-sm); color: var(--text-3); margin-top: 4px; }
 .chart-box.report-sankey { height: 540px; }
 .sankey text { font-size: 12px; fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }   /* 文字描一圈底色，壓在流向帶上也看得清楚 */
+/* 股價 */
+.s-quote { display: flex; flex-direction: column; gap: 2px; }
+.s-name { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-lg); }
+.s-name span { font-size: var(--fs-sm); color: var(--text-3); }
+.s-price { font-size: 36px; font-weight: 650; letter-spacing: -.02em; line-height: 1.15; }
+.s-chg { font-size: var(--fs-md); font-weight: 600; display: flex; gap: 10px; align-items: baseline; }
+.s-chg .sub { display: inline; font-weight: 400; }
+.s-range-chg { font-size: var(--fs); color: var(--text-2); margin: 4px 0 8px; }
+.chart-box.s-chart { height: 340px; position: relative; }
 .fs-table tr.fs-E td { color: var(--text-2); border-bottom: none; }
 .r-trend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
 .r-trend .legend:empty { display: block; min-height: 20px; margin-bottom: 10px; }
